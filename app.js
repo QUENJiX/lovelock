@@ -814,9 +814,7 @@ async function checkUrlPayload() {
       }
     } catch (e) {
       console.error("Failed to decode lock link", e);
-      alert(e.message || "Uh oh! This link looks corrupted or incomplete.");
-      window.location.hash = "";
-      switchView("creator-view");
+      window.location.href = "404.html";
     }
   } else {
     switchView("creator-view");

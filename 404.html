@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oops! — LoveLock</title>
+  
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Playfair+Display:ital,wght@0,600;1,400&display=swap" rel="stylesheet">
+  
+  <!-- Depending on where the 404 is hit, absolute path to style is safer for GitHub pages, but relative usually works if just hitting /wrong -->
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="theme-pink">
+
+  <!-- Floating hearts background container -->
+  <div class="bg-hearts" id="hearts-bg"></div>
+
+  <!-- Ambient light blobs -->
+  <div class="light-blob blob-1"></div>
+  <div class="light-blob blob-2"></div>
+
+  <main class="app-container" style="align-items: center;">
+    
+    <header class="app-header">
+      <div class="logo">
+        <svg class="heart-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 21L20.55 12.3684C21.4907 11.4207 22 10.1349 22 8.79389C22 7.45288 21.4907 6.16708 20.55 5.21939C19.5775 4.24434 18.238 3.7 16.85 3.7C15.462 3.7 14.1225 4.24434 13.15 5.21939L12 6.37651L10.85 5.21939C9.87752 4.24434 8.53798 3.7 7.15 3.7C5.76202 3.7 4.42248 4.24434 3.45 5.21939C2.5093 6.16708 2 7.45288 2 8.79389C2 10.1349 2.5093 11.4207 3.45 12.3684L12 21Z" fill="url(#logo-grad)"/>
+          <path d="M12 15C13.1046 15 14 14.1046 14 13C14 11.8954 13.1046 11 12 11C10.8954 11 10 11.8954 10 13C10 14.1046 10.8954 15 12 15Z" fill="#11050e"/>
+          <path d="M12 15V17" stroke="#11050e" stroke-width="2" stroke-linecap="round"/>
+          <defs>
+            <linearGradient id="logo-grad" x1="2" y1="3.7" x2="22" y2="21" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#ff4b72"/>
+              <stop offset="1" stop-color="#ff758c"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <h1>Love<span>Lock</span></h1>
+      </div>
+    </header>
+
+    <div class="card glass text-center" style="max-width: 500px; width: 100%;">
+      <div style="font-size: 4rem; margin-bottom: 1rem;">💔</div>
+      <h2 style="font-size: 2rem; font-weight: 800; margin-bottom: 1rem; color: var(--primary);">404 - Heartbreak!</h2>
+      <p style="color: var(--text-muted); font-size: 1.1rem; margin-bottom: 2rem;">
+        Looks like this Love Lock has either rusted away, expired, or never existed in the first place! 
+      </p>
+      
+      <a href="/" class="btn btn-primary btn-block btn-lg" style="text-decoration: none;">
+        Return to Home & Create a Lock
+      </a>
+    </div>
+
+  </main>
+
+  <script>
+    // Quick background hearts animation
+    const bg = document.getElementById("hearts-bg");
+    for (let i = 0; i < 15; i++) {
+      const heart = document.createElement("div");
+      heart.classList.add("bg-heart-particle");
+      const size = Math.random() * 30 + 15;
+      heart.style.width = `${size}px`;
+      heart.style.height = `${size}px`;
+      heart.style.left = `${Math.random() * 100}%`;
+      const duration = Math.random() * 10 + 10;
+      const delay = Math.random() * -15; 
+      heart.style.animationDuration = `${duration}s`;
+      heart.style.animationDelay = `${delay}s`;
+      bg.appendChild(heart);
+    }
+  </script>
+</body>
+</html>
