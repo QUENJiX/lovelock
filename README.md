@@ -4,7 +4,7 @@ LoveLock is a gamified relationship quiz and photo locker. Upload a secret photo
 
 Designed with strict privacy in mind, LoveLock employs a **Zero-Knowledge Architecture**. Your photos are securely encrypted directly within your browser, ensuring that the server never has access to the underlying images or the decryption keys.
 
-## ✨ Features
+## Features
 
 - **Zero-Knowledge Encryption**: Uses PBKDF2 for key derivation and AES-GCM (256-bit) for encryption. The server stores only ciphertext; the decryption key is derived exclusively from the correct quiz answers.
 - **Dynamic Progressive Unblur**: The locked image provides a tantalizing, heavily blurred preview that dynamically becomes clearer as questions are successfully answered.
@@ -12,7 +12,7 @@ Designed with strict privacy in mind, LoveLock employs a **Zero-Knowledge Archit
 - **Customizable Themes**: Tailor the experience with beautifully designed UI themes (Romantic Pink, Golden Hour, Midnight Mood).
 - **Ephemeral Storage**: Locks and their encrypted payloads are designed to self-destruct after 24 hours.
 
-## 🔒 Security Architecture
+## Security Architecture
 
 1. The user uploads an image and sets the correct answers to their quiz.
 2. The answers are concatenated and hashed. This hash acts as the passphrase to derive an AES-GCM decryption key via PBKDF2 locally in the browser.
@@ -20,9 +20,7 @@ Designed with strict privacy in mind, LoveLock employs a **Zero-Knowledge Archit
 4. Only the AES-encrypted payload (`encData`), a heavily pixelated and blurred thumbnail, and the SHA-256 hashes of the correct answers are sent to the database.
 5. The decryption key is **never** sent to the server. It is mathematically impossible to decrypt the image without knowing the correct answers to the quiz.
 
-*(For detailed security analysis and known UX trade-offs, see [SECURITY_NOTES.md](./SECURITY_NOTES.md))*
-
-## 🚀 Setup & Local Development
+## Setup & Local Development
 
 ### 1. Install Dependencies
 ```bash
