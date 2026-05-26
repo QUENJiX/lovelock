@@ -16,3 +16,6 @@ dist/
 *.njsproj
 *.sln
 *.sw?
+
+# Documentation for local reference only
+SECURITY_NOTES.md

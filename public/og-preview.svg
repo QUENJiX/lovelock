@@ -1,0 +1,28 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#11050e"/>
+  
+  <!-- Faint background heart -->
+  <path d="M600 500L899.25 240.947C932.176 212.518 950 173.947 950 133.717C950 93.4864 932.176 54.916 899.25 26.4884C865.213 -1.82903 818.33 -18.15 769.75 -18.15C721.17 -18.15 674.288 -1.82903 640.25 26.4884L600 61.1953L559.75 26.4884C525.713 -1.82903 478.83 -18.15 430.25 -18.15C381.67 -18.15 334.788 -1.82903 300.75 26.4884C267.824 54.916 250 93.4864 250 133.717C250 173.947 267.824 212.518 300.75 240.947L600 500Z" fill="url(#bg-grad)" opacity="0.05"/>
+  
+  <!-- Center Heart Padlock -->
+  <g transform="translate(480, 180) scale(10)">
+      <path d="M12 21L20.55 12.3684C21.4907 11.4207 22 10.1349 22 8.79389C22 7.45288 21.4907 6.16708 20.55 5.21939C19.5775 4.24434 18.238 3.7 16.85 3.7C15.462 3.7 14.1225 4.24434 13.15 5.21939L12 6.37651L10.85 5.21939C9.87752 4.24434 8.53798 3.7 7.15 3.7C5.76202 3.7 4.42248 4.24434 3.45 5.21939C2.5093 6.16708 2 7.45288 2 8.79389C2 10.1349 2.5093 11.4207 3.45 12.3684L12 21Z" fill="url(#logo-grad)"/>
+      <path d="M12 15C13.1046 15 14 14.1046 14 13C14 11.8954 13.1046 11 12 11C10.8954 11 10 11.8954 10 13C10 14.1046 10.8954 15 12 15Z" fill="#11050e"/>
+      <path d="M12 15V17" stroke="#11050e" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Text -->
+  <text x="600" y="490" font-family="-apple-system, BlinkMacSystemFont, 'Outfit', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="72" fill="#ffffff" text-anchor="middle">Love<tspan fill="#ff4b72">Lock</tspan></text>
+  <text x="600" y="550" font-family="-apple-system, BlinkMacSystemFont, 'Outfit', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="400" font-size="32" fill="#ff9fb4" text-anchor="middle">Prove your love to unlock the vault.</text>
+  
+  <defs>
+    <linearGradient id="logo-grad" x1="2" y1="3.7" x2="22" y2="21" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff4b72"/>
+      <stop offset="1" stop-color="#ff758c"/>
+    </linearGradient>
+    <linearGradient id="bg-grad" x1="250" y1="-18.15" x2="950" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff4b72"/>
+      <stop offset="1" stop-color="#ff758c"/>
+    </linearGradient>
+  </defs>
+</svg>
