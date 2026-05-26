@@ -1,62 +1,71 @@
 # LoveLock ❤️🔒
 
-LoveLock is a playful relationship quiz and photo locker. Upload a photo, set custom questions, and challenge your partner to unlock the vault.
+LoveLock is a gamified relationship quiz and photo locker. Upload a secret photo, define custom trivia questions, and challenge your partner to unlock the vault. 
 
-Originally built as a 100% client-side zero-backend app, it now utilizes **Hybrid Zero-Knowledge Storage** via Supabase to keep URL links short and shareable, while maintaining complete privacy. Your images are encrypted directly in the browser *before* they are sent to the database.
+Designed with strict privacy in mind, LoveLock employs a **Zero-Knowledge Architecture**. Your photos are securely encrypted directly within your browser, ensuring that the server never has access to the underlying images or the decryption keys.
 
-## Features
-- **Zero-Knowledge Encryption:** Uses PBKDF2 for key derivation and AES-GCM for encryption. Keys are never sent to the server.
-- **Short URLs:** Links are kept clean and under 150 characters.
-- **Customizable Themes:** Romantic Pink, Golden Hour, Midnight Mood.
-- **Progressive Unblurring:** The locked image slowly reveals itself as questions are answered.
+## ✨ Features
 
-## Setup & Local Development
+- **Zero-Knowledge Encryption**: Uses PBKDF2 for key derivation and AES-GCM (256-bit) for encryption. The server stores only ciphertext; the decryption key is derived exclusively from the correct quiz answers.
+- **Dynamic Progressive Unblur**: The locked image provides a tantalizing, heavily blurred preview that dynamically becomes clearer as questions are successfully answered.
+- **Short, Shareable Links**: By utilizing a lightweight Supabase backend for payload storage, generated lock URLs are kept incredibly clean and short.
+- **Customizable Themes**: Tailor the experience with beautifully designed UI themes (Romantic Pink, Golden Hour, Midnight Mood).
+- **Ephemeral Storage**: Locks and their encrypted payloads are designed to self-destruct after 24 hours.
 
-1. **Install Dependencies**
-   ```bash
-   npm install
+## 🔒 Security Architecture
+
+1. The user uploads an image and sets the correct answers to their quiz.
+2. The answers are concatenated and hashed. This hash acts as the passphrase to derive an AES-GCM decryption key via PBKDF2 locally in the browser.
+3. The image is encrypted using the derived key.
+4. Only the AES-encrypted payload (`encData`), a heavily pixelated and blurred thumbnail, and the SHA-256 hashes of the correct answers are sent to the database.
+5. The decryption key is **never** sent to the server. It is mathematically impossible to decrypt the image without knowing the correct answers to the quiz.
+
+*(For detailed security analysis and known UX trade-offs, see [SECURITY_NOTES.md](./SECURITY_NOTES.md))*
+
+## 🚀 Setup & Local Development
+
+### 1. Install Dependencies
+```bash
+npm install
+```
+
+### 2. Configure Supabase
+LoveLock uses [Supabase](https://supabase.com/) as a lightweight JSON store for the encrypted payloads.
+1. Create a new project in Supabase.
+2. Run the following SQL in your Supabase SQL Editor to set up the storage table:
+   ```sql
+   CREATE TABLE public.locks (
+       id text PRIMARY KEY,
+       payload jsonb NOT NULL,
+       created_at timestamp with time zone DEFAULT now()
+   );
+   
+   ALTER TABLE public.locks ENABLE ROW LEVEL SECURITY;
+   
+   CREATE POLICY "Allow public inserts" ON public.locks FOR INSERT TO anon WITH CHECK (true);
+   CREATE POLICY "Allow public reads" ON public.locks FOR SELECT TO anon USING (true);
    ```
-
-2. **Configure Supabase**
-   - Head to [Supabase](https://supabase.com/) and create a new project.
-   - Run the following SQL in your Supabase SQL Editor to set up the storage table:
-     ```sql
-     CREATE TABLE public.locks (
-         id text PRIMARY KEY,
-         payload jsonb NOT NULL,
-         created_at timestamp with time zone DEFAULT now()
-     );
-     
-     ALTER TABLE public.locks ENABLE ROW LEVEL SECURITY;
-     
-     CREATE POLICY "Allow public inserts" ON public.locks FOR INSERT TO anon WITH CHECK (true);
-     CREATE POLICY "Allow public reads" ON public.locks FOR SELECT TO anon USING (true);
-     ```
-
-   - **(Optional) 24-Hour Auto-Delete:** To ensure photos are automatically wiped from the server after 24 hours (while they remain totally unreadable anyways), run this in your Supabase SQL Editor:
-     ```sql
-     -- Enable pg_cron if not already enabled
-     CREATE EXTENSION IF NOT EXISTS pg_cron;
-     
-     -- Run a cleanup job every hour to delete locks older than 24 hours
-     SELECT cron.schedule(
-       'delete-expired-locks',
-       '0 * * * *',
-       $$ DELETE FROM public.locks WHERE created_at < NOW() - INTERVAL '24 hours'; $$
-     );
-     ```
-
-   - Rename `.env.example` to `.env` and fill in your Project URL and Anon Key.
-
-3. **Run Development Server**
-   ```bash
-   npm run dev
+3. **(Optional) 24-Hour Auto-Delete**: Ensure encrypted payloads are wiped automatically by running this cron job setup:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS pg_cron;
+   
+   SELECT cron.schedule(
+     'delete-expired-locks',
+     '0 * * * *',
+     $$ DELETE FROM public.locks WHERE created_at < NOW() - INTERVAL '24 hours'; $$
+   );
    ```
+4. Rename `.env.example` to `.env` and fill in your Project URL and Anon Key.
 
-## Deployment (GitHub Pages)
+### 3. Run Development Server
+```bash
+npm run dev
+```
 
-Because this app uses Vite and requires environment variables injected at build time, the best way to deploy to GitHub Pages is via a GitHub Actions workflow.
+## 🌐 Deployment (GitHub Pages)
 
-1. Go to your GitHub repository -> **Settings** -> **Secrets and variables** -> **Actions**.
+Because this app is built with Vite and requires environment variables injected at build time, the recommended deployment method is via a GitHub Actions workflow.
+
+1. Navigate to your GitHub repository -> **Settings** -> **Secrets and variables** -> **Actions**.
 2. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as Repository Secrets.
-3. Use a GitHub Action workflow to build the project and deploy the `dist/` folder to your `gh-pages` branch.
+3. Use a standard Vite GitHub Action workflow to build the project and deploy the output `dist/` directory to your `gh-pages` branch. The app comes pre-configured with a custom `404.html` and router fallback to handle invalid links smoothly.
