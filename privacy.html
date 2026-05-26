@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy &mdash; LoveLock</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Playfair+Display:ital,wght@0,600;1,400&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+  
+  <style>
+    .legal-container {
+      max-width: 800px;
+      margin: 4rem auto;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-lg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: var(--shadow-glass);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .legal-container h1 {
+      font-family: var(--font-serif);
+      color: var(--primary);
+      margin-bottom: 2rem;
+      font-size: 2.5rem;
+    }
+    .legal-container h2 {
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      font-size: 1.25rem;
+      color: var(--text-main);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 0.5rem;
+    }
+    .legal-container p, .legal-container li {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+    .legal-container ul {
+      margin-left: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .back-nav {
+      margin-bottom: 2rem;
+    }
+    .back-nav a {
+      text-decoration: none;
+      color: var(--text-muted);
+      font-weight: 600;
+      transition: color 0.3s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .back-nav a:hover {
+      color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-hearts" id="hearts-bg"></div>
+  <div class="light-blob blob-1"></div>
+  <div class="light-blob blob-2"></div>
+
+  <main class="app-container" style="max-width: 900px;">
+    <div class="legal-container">
+      <div class="back-nav">
+        <a href="index.html">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          Back to LoveLock
+        </a>
+      </div>
+      
+      <h1>Privacy Policy</h1>
+      <p><em>Last Updated: May 26, 2026</em></p>
+
+      <p>LoveLock ("we", "us", "our") takes your privacy extremely seriously. We built this application with a security-first, "zero-knowledge" architecture designed specifically to ensure we never have access to your personal data.</p>
+
+      <h2>1. End-to-End Encryption (Zero-Knowledge)</h2>
+      <p>All photos and custom messages you upload are encrypted <strong>locally inside your web browser</strong> before they are transmitted anywhere. We use industry-standard Web Crypto API standards including AES-GCM for encryption and PBKDF2 for key derivation.</p>
+      <ul>
+        <li><strong>No Secret Keys transmitted:</strong> The cryptographic key required to unlock your vault is generated from the quiz answers you set. This key is never transmitted to or stored on our servers.</li>
+        <li><strong>No readable data:</strong> Our database only receives a random, mathematically scrambling sequence of characters (ciphertext).</li>
+      </ul>
+
+      <h2>2. Data Storage & 24-Hour Auto-Deletion</h2>
+      <p>To provide short, shareable links, we temporarily store the encrypted, unreadable ciphertext on our cloud database (Supabase). For your ultimate privacy and safety:</p>
+      <ul>
+        <li>Every single vault and its associated encrypted data is scheduled to permanently self-destruct (be deleted) from our servers <strong>24 hours after it is created.</strong></li>
+        <li>Once deleted, the data cannot be recovered, not even by us.</li>
+      </ul>
+
+      <h2>3. What personal information do we collect?</h2>
+      <p><strong>Absolutely none.</strong> We do not require you to create an account, log in, provide an email address, or give us a name. The only data processed is the photo and quiz answers provided, which are handled exclusively on the client side (your device).</p>
+
+      <h2>4. Cookies and Tracking</h2>
+      <p>LoveLock does not use any third-party tracking cookies or advertising pixels. We may use temporary browser session storage strictly for the mechanical functioning of the app (like keeping track of your current quiz progress).</p>
+
+      <h2>5. Law Enforcement & Data Requests</h2>
+      <p>Because of our strict end-to-end encryption architectural design, if we are compelled by a legal request to provide data associated with a vault, we have <strong>no technical ability</strong> to decrypt your photos or messages, nor can we identify who created the link.</p>
+
+      <h2>6. Changes to this Privacy Policy</h2>
+      <p>We may update our Privacy Policy periodically. Any changes will be posted on this page with an updated "Last Updated" date.</p>
+
+    </div>
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

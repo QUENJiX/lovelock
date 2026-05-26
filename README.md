@@ -32,6 +32,20 @@ Originally built as a 100% client-side zero-backend app, it now utilizes **Hybri
      CREATE POLICY "Allow public inserts" ON public.locks FOR INSERT TO anon WITH CHECK (true);
      CREATE POLICY "Allow public reads" ON public.locks FOR SELECT TO anon USING (true);
      ```
+
+   - **(Optional) 24-Hour Auto-Delete:** To ensure photos are automatically wiped from the server after 24 hours (while they remain totally unreadable anyways), run this in your Supabase SQL Editor:
+     ```sql
+     -- Enable pg_cron if not already enabled
+     CREATE EXTENSION IF NOT EXISTS pg_cron;
+     
+     -- Run a cleanup job every hour to delete locks older than 24 hours
+     SELECT cron.schedule(
+       'delete-expired-locks',
+       '0 * * * *',
+       $$ DELETE FROM public.locks WHERE created_at < NOW() - INTERVAL '24 hours'; $$
+     );
+     ```
+
    - Rename `.env.example` to `.env` and fill in your Project URL and Anon Key.
 
 3. **Run Development Server**

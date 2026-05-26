@@ -961,6 +961,26 @@ select:focus {
   margin-top: 3rem;
 }
 
+.legal-links {
+  margin-top: 0.75rem;
+  font-weight: 600;
+}
+
+.legal-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.legal-links a:hover {
+  color: var(--primary);
+}
+
+.legal-links .divider {
+  margin: 0 0.5rem;
+  color: rgba(255, 255, 255, 0.2);
+}
+
 .coffee-link {
   display: inline-flex;
   align-items: center;
