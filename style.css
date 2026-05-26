@@ -661,6 +661,19 @@ select:focus {
   color: var(--text-muted);
 }
 
+#countdown-timer {
+  color: var(--primary);
+  background: var(--glass-border);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-weight: 600;
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-style: normal;
+  font-family: var(--font-main);
+  border: 1px solid var(--glass-border);
+}
+
 .solver-layout {
   display: grid;
   grid-template-columns: 1.1fr 1fr;

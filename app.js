@@ -304,8 +304,38 @@ function compressAndResizeImage(file) {
         ctx.drawImage(img, 0, 0, width, height);
         
         // Export to highly compressed JPEG but with quality sufficient for rewards
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.72);
-        resolve(compressedBase64);
+        const fullBase64 = canvas.toDataURL('image/jpeg', 0.72);
+        
+        // --- Thumbnail image (Severely degraded for Zero-knowledge progressive unblur) ---
+        const thumbCanvas = document.createElement('canvas');
+        const thumbCtx = thumbCanvas.getContext('2d');
+        
+        const THUMB_MAX = 40;
+        let tWidth = img.width;
+        let tHeight = img.height;
+        
+        if (tWidth > tHeight) {
+          if (tWidth > THUMB_MAX) {
+            tHeight *= THUMB_MAX / tWidth;
+            tWidth = THUMB_MAX;
+          }
+        } else {
+          if (tHeight > THUMB_MAX) {
+            tWidth *= THUMB_MAX / tHeight;
+            tHeight = THUMB_MAX;
+          }
+        }
+        
+        thumbCanvas.width = tWidth;
+        thumbCanvas.height = tHeight;
+        
+        // Apply slight blur during draw for extra safety, though scaling down to 40px is already lossy
+        thumbCtx.filter = 'blur(2px)';
+        thumbCtx.drawImage(img, 0, 0, tWidth, tHeight);
+        
+        const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.5);
+
+        resolve({ fullBase64, thumbBase64 });
       };
       img.onerror = (error) => reject(error);
     };
@@ -411,9 +441,10 @@ function handlePhotoSelected(file) {
   const previewContainer = document.getElementById("upload-preview-container");
   const imgPreview = document.getElementById("image-preview");
   
-  compressAndResizeImage(file).then(base64 => {
-    db.photoBase64 = base64;
-    imgPreview.src = base64;
+  compressAndResizeImage(file).then(({ fullBase64, thumbBase64 }) => {
+    db.photoBase64 = fullBase64;
+    db.photoThumbBase64 = thumbBase64;
+    imgPreview.src = fullBase64;
     uploadPrompt.classList.add("hidden");
     previewContainer.classList.remove("hidden");
     document.getElementById("drop-zone").classList.add("has-photo");
@@ -426,6 +457,7 @@ function handlePhotoSelected(file) {
 
 function resetPhotoInput() {
   db.photoBase64 = null;
+  db.photoThumbBase64 = null;
   document.getElementById("photo-input").value = "";
   document.getElementById("upload-prompt").classList.remove("hidden");
   document.getElementById("upload-preview-container").classList.add("hidden");
@@ -651,7 +683,9 @@ async function handleGenerateLock() {
       q: parsedQuestions,
       t: db.theme,
       title: document.getElementById("vault-title-input").value.trim() || "Love Lock Vault",
-      encData: encryptedBase64
+      encData: encryptedBase64,
+      thumbBase64: db.photoThumbBase64,
+      createdAt: Date.now()
     };
 
     // Upload to Supabase 
@@ -715,6 +749,7 @@ function copyShareUrl() {
 
 function resetCreatorState() {
   db.photoBase64 = null;
+  db.photoThumbBase64 = null;
   db.theme = 'pink';
   resetPhotoInput();
   document.getElementById("questions-list").innerHTML = "";
@@ -753,7 +788,7 @@ async function checkUrlPayload() {
       
       const { data, error } = await supabase
         .from('locks')
-        .select('payload')
+        .select('payload, created_at')
         .eq('id', lockId)
         .single();
 
@@ -768,7 +803,8 @@ async function checkUrlPayload() {
       currentSolverQuiz = {
         ...publicPayload,
         salt: parts[1],
-        iv: parts[2]
+        iv: parts[2],
+        createdAt: data.created_at ? new Date(data.created_at).getTime() : (publicPayload.createdAt || Date.now())
       };
       
       if (currentSolverQuiz && currentSolverQuiz.q && currentSolverQuiz.encData) {
@@ -794,12 +830,14 @@ function setupSolverQuiz(quiz) {
   // Set custom vault title
   document.getElementById("solver-vault-title").innerText = quiz.title || "Love Lock Vault";
   
-  // Prep vault photo (show placeholder or a scrambled generic image since we don't have it yet)
+  // Prep vault photo using the highly blurred thumbnail from the public payload
   const lockedImg = document.getElementById("locked-image");
-  // We can't set it to quiz.p anymore! It's encrypted!
-  // Setting a dummy or leaving the blur strong on a background color.
-  lockedImg.src = ""; // Clear src
-  lockedImg.style.background = "linear-gradient(45deg, #11050e 0%, #2a0b1f 100%)";
+  if (quiz.thumbBase64) {
+    lockedImg.src = quiz.thumbBase64;
+  } else {
+    lockedImg.src = "";
+    lockedImg.style.background = "linear-gradient(45deg, #11050e 0%, #2a0b1f 100%)";
+  }
   lockedImg.style.width = "100%";
   lockedImg.style.height = "100%";
   lockedImg.style.objectFit = "cover";
@@ -822,6 +860,7 @@ function setupSolverQuiz(quiz) {
 
   loadSolverQuestion();
   adjustProgressiveBlur();
+  startCountdownTimer(currentSolverQuiz.createdAt);
   
   // Add listeners
   document.getElementById("btn-submit-answer").onclick = handleSolverSubmit;
@@ -1225,4 +1264,35 @@ function animateConfetti(el) {
     }
   }
   requestAnimationFrame(update);
+}
+
+let timerInterval = null;
+
+function startCountdownTimer(createdAtTimestamp) {
+  const timerSpan = document.getElementById("countdown-timer");
+  if (!timerSpan) return;
+  
+  if (timerInterval) clearInterval(timerInterval);
+  
+  const updateTimer = () => {
+    const now = Date.now();
+    const expiresAt = createdAtTimestamp + (24 * 60 * 60 * 1000); // 24 hours later
+    const diff = expiresAt - now;
+    
+    if (diff <= 0) {
+      timerSpan.innerText = "Expired";
+      timerSpan.style.color = "#ff4b72";
+      clearInterval(timerInterval);
+      return;
+    }
+    
+    const h = Math.floor(diff / (1000 * 60 * 60));
+    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
+    const s = Math.floor((diff % (1000 * 60)) / 1000).toString().padStart(2, '0');
+    
+    timerSpan.innerText = `${h}h ${m}m ${s}s`;
+  };
+  
+  updateTimer();
+  timerInterval = setInterval(updateTimer, 1000);
 }
