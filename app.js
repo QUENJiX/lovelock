@@ -1199,6 +1199,8 @@ async function triggerUnlockReveal() {
       
       const unlockedCard = document.getElementById("unlocked-card");
       unlockedCard.classList.remove("hidden");
+      
+      launchHeartConfetti();
     }, 1200);
   } catch (error) {
     console.error("Decryption failed:", error);
