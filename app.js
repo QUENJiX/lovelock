@@ -5,8 +5,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const env = import.meta.env || {};
+const supabaseUrl = env.VITE_SUPABASE_URL || '';
+const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 // Global State
@@ -15,10 +16,18 @@ let db = {
   photoThumbBase64: null,
   questions: [], // { type: 'text'|'choice', question: '', answerHash: '', options: [], hint: '' }
   message: '',
-  theme: 'pink'
+  theme: 'pink',
+  mode: 'playful',
+  teaserEnabled: false,
+  lastShareMessage: '',
+  afterDark: false,
+  adultGateAccepted: false,
+  galleryRoomImages: [],
+  galleryRoleLinks: null
 };
 
 let currentSolverQuiz = null; // Decoded state for solver
+let currentGalleryRoom = null;
 let currentQuestionIndex = 0;
 let solverSelectedOption = null;
 
@@ -31,24 +40,230 @@ const COUCH_MESSAGES = [
   "Not quite! Let's try that again! 💪"
 ];
 
+export function normalizeAnswer(str) {
+  return str.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function combineNormalizedAnswers(answers) {
+  return answers.map(normalizeAnswer).join('');
+}
+
+export function validateImageFile(file) {
+  const maxBytes = 10 * 1024 * 1024;
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    return { valid: false, message: 'Please choose an image file.' };
+  }
+  if (file.size > maxBytes) {
+    return { valid: false, message: 'Please choose an image under 10 MB.' };
+  }
+  return { valid: true };
+}
+
+export function buildPublicQuestion({ mode, type, question, answerHash, options, hint }) {
+  const publicQuestion = { type, question };
+  if (mode === 'playful') publicQuestion.answerHash = answerHash;
+  if (type === 'choice') publicQuestion.options = options;
+  if (hint) publicQuestion.hint = hint;
+  return publicQuestion;
+}
+
+export function buildPublicPayload({
+  mode,
+  questions,
+  theme,
+  title,
+  encryptedBase64,
+  thumbBase64,
+  teaserEnabled,
+}) {
+  const payload = {
+    mode,
+    q: questions,
+    t: theme,
+    title,
+    encData: encryptedBase64,
+    teaserEnabled: Boolean(teaserEnabled),
+  };
+  if (teaserEnabled && thumbBase64) {
+    payload.thumbBase64 = thumbBase64;
+  }
+  return payload;
+}
+
+export function buildAfterDarkScenario({
+  type,
+  intensity,
+  role,
+  customRole,
+  discreet,
+  expiresInHours,
+}) {
+  return {
+    type,
+    intensity,
+    role: role === 'custom' ? customRole.trim() : role,
+    discreet: Boolean(discreet),
+    expiresInHours: Number(expiresInHours) || 24,
+  };
+}
+
+export function afterDarkConsentComplete(consent) {
+  return Boolean(
+    consent.adult &&
+    consent.depictedConsent &&
+    consent.noHiddenCapture &&
+    consent.recipientConsent
+  );
+}
+
+export function getVaultExpiryMs(createdAtTimestamp, expiresInHours = 24) {
+  return createdAtTimestamp + (Number(expiresInHours) || 24) * 60 * 60 * 1000;
+}
+
+export function getDisplayTitle({ afterDark, discreet }) {
+  if (afterDark && discreet) return 'Private Vault';
+  if (afterDark) return 'LoveLock After Dark';
+  return 'LoveLock — Prove Your Love to Unlock the Vault';
+}
+
+export function validateGalleryImageCount(count) {
+  if (count < 1) {
+    return { valid: false, message: 'Upload at least one image for a Gallery Room.' };
+  }
+  if (count > 6) {
+    return { valid: false, message: 'Gallery Rooms can include up to 6 images.' };
+  }
+  return { valid: true };
+}
+
+export function buildGalleryRoomMetadata({
+  title,
+  type,
+  intensity,
+  creatorLabel,
+  partnerLabel,
+  thirdLabel,
+  coinMode,
+  expiresInHours,
+  mediaCount,
+  discreet,
+  createdAt,
+}) {
+  return {
+    surface: 'after-dark-room',
+    title: title.trim() || 'After Dark Gallery Room',
+    createdAt,
+    expiresInHours: Number(expiresInHours) || 24,
+    mediaCount,
+    coinMode,
+    discreet: Boolean(discreet),
+    scenario: {
+      type,
+      intensity,
+      creatorLabel: creatorLabel.trim() || 'Creator',
+      partnerLabel: partnerLabel.trim() || 'Partner',
+      thirdLabel: thirdLabel.trim() || 'Third',
+    },
+    roles: {
+      partnerSeat: 'invited',
+      thirdSeat: 'open',
+    },
+  };
+}
+
+export function buildGalleryRoleLinks({
+  baseUrl,
+  roomId,
+  roomKey,
+  creatorKey,
+  partnerKey,
+  thirdKey,
+  privateThirdKey,
+}) {
+  const make = (role, roleKey, extra = {}) => {
+    const params = new URLSearchParams({
+      room: roomId,
+      role,
+      roomKey,
+      roleKey,
+      ...extra,
+    });
+    return `${baseUrl}#${params.toString()}`;
+  };
+
+  return {
+    creator: make('creator', creatorKey, { privateThirdKey }),
+    partner: make('partner', partnerKey),
+    third: make('third', thirdKey, { privateThirdKey }),
+  };
+}
+
+export function canAccessPrivateThirdChat(role) {
+  return role === 'creator' || role === 'third';
+}
+
+export function canRequestGalleryUnlock({ role, coinMode, imageState }) {
+  return role === 'third' && ['request', 'auto'].includes(coinMode) && imageState !== 'unlocked';
+}
+
+export function buildShareMessage(title) {
+  return `I made you a LoveLock: ${title}. Unlock it within 24 hours.`;
+}
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function applyBodyClasses(theme = db.theme, afterDark = db.afterDark) {
+  const classes = [`theme-${theme || 'pink'}`];
+  if (afterDark) classes.push('after-dark-mode');
+  document.body.className = classes.join(' ');
+}
+
+function updateDocumentTitle({ afterDark = db.afterDark, discreet = false } = {}) {
+  document.title = getDisplayTitle({ afterDark, discreet });
+}
+
+function formatScenarioLabel(value) {
+  const labels = {
+    ntr: 'NTR fantasy',
+    hotwife: 'Hotwife',
+    cuckold: 'Cuckold',
+    voyeur: 'Consensual voyeur',
+    custom: 'Custom',
+    soft: 'Soft',
+    spicy: 'Spicy',
+    intense: 'Intense',
+  };
+  return labels[value] || value || 'Private';
+}
+
 // INITIALIZATION
-document.addEventListener("DOMContentLoaded", () => {
+function handleGlobalButtonClick(e) {
+  const btn = e.target.closest("button, .btn, .btn-option, .btn-theme-select, .btn-remove-photo-badge, .btn-hint-trigger");
+  if (btn) {
+    playClickSound();
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener("DOMContentLoaded", () => {
   initBackgroundHearts();
   initCreatorView();
   checkUrlPayload();
   
   // Play subtle feedback click sound on buttons
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest("button, .btn, .btn-option, .btn-theme-select, .btn-remove-photo-badge, .btn-hint-trigger");
-    if (btn) {
-      playClickSound();
-    }
+    document.addEventListener("click", handleGlobalButtonClick);
   });
-});
+}
 
 // BACKGROUND HEARTS ANIMATION
 function initBackgroundHearts() {
+  if (prefersReducedMotion()) return;
   const bg = document.getElementById("hearts-bg");
+  if (!bg) return;
   const heartCount = 15;
   for (let i = 0; i < heartCount; i++) {
     createHeart(bg);
@@ -197,7 +412,7 @@ function playClickSound() {
 
 // CRYPTOGRAPHIC SHA-256 HASHING & AES-GCM ENCRYPTION
 async function hashString(str) {
-  const normalized = str.trim().toLowerCase().replace(/\s+/g, ' ');
+  const normalized = normalizeAnswer(str);
   const msgUint8 = new TextEncoder().encode(normalized);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -355,7 +570,8 @@ function switchView(viewId) {
   if (viewId === 'creator-view') {
     document.querySelector('.app-header').classList.remove('hidden');
     // Preview theme in creator view too
-    document.body.className = `theme-${db.theme}`;
+    applyBodyClasses(db.theme, db.afterDark);
+    updateDocumentTitle();
   } else if (viewId === 'solver-view') {
     document.querySelector('.app-header').classList.add('hidden');
   }
@@ -369,6 +585,55 @@ function initCreatorView() {
   const addQBtn = document.getElementById("btn-add-question");
   const generateBtn = document.getElementById("btn-generate-lock");
   const themePicker = document.getElementById("theme-picker");
+  const modePicker = document.getElementById("unlock-mode-picker");
+  const teaserToggle = document.getElementById("teaser-toggle");
+  const enterAfterDarkBtn = document.getElementById("btn-enter-after-dark");
+  const exitAfterDarkBtn = document.getElementById("btn-exit-after-dark");
+  const confirmAfterDarkBtn = document.getElementById("btn-confirm-after-dark");
+  const cancelAfterDarkBtn = document.getElementById("btn-cancel-after-dark");
+  const discreetToggle = document.getElementById("discreet-toggle");
+  const galleryRoomInput = document.getElementById("gallery-room-input");
+  const galleryRoomDropzone = document.getElementById("gallery-room-dropzone");
+  
+  enterAfterDarkBtn.addEventListener("click", () => {
+    switchView("after-dark-gate");
+  });
+
+  cancelAfterDarkBtn.addEventListener("click", () => {
+    switchView("creator-view");
+  });
+
+  confirmAfterDarkBtn.addEventListener("click", () => {
+    db.afterDark = true;
+    db.adultGateAccepted = true;
+    updateCreatorMode();
+    switchView("creator-view");
+  });
+
+  exitAfterDarkBtn.addEventListener("click", () => {
+    db.afterDark = false;
+    updateCreatorMode();
+    switchView("creator-view");
+  });
+
+  // Unlock mode selection
+  modePicker.querySelectorAll(".btn-mode-select").forEach(btn => {
+    btn.addEventListener("click", () => {
+      modePicker.querySelectorAll(".btn-mode-select").forEach(b => {
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
+      db.mode = btn.dataset.mode;
+      validateCreatorForm();
+    });
+  });
+
+  teaserToggle.addEventListener("change", () => {
+    db.teaserEnabled = teaserToggle.checked;
+    validateCreatorForm();
+  });
   
   // Theme selection click handlers
   themePicker.querySelectorAll(".btn-theme-select").forEach(btn => {
@@ -376,8 +641,18 @@ function initCreatorView() {
       themePicker.querySelectorAll(".btn-theme-select").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       db.theme = btn.dataset.theme;
-      document.body.className = `theme-${db.theme}`;
+      applyBodyClasses(db.theme, db.afterDark);
     });
+  });
+
+  document.querySelectorAll(".after-dark-consent, #scenario-type-select, #scenario-intensity-select, #after-dark-expiry-select, #gallery-creator-label, #gallery-partner-label, #gallery-third-label, #gallery-coin-mode").forEach(control => {
+    control.addEventListener("input", validateCreatorForm);
+    control.addEventListener("change", validateCreatorForm);
+  });
+
+  discreetToggle.addEventListener("change", () => {
+    updateDocumentTitle({ afterDark: db.afterDark, discreet: discreetToggle.checked });
+    validateCreatorForm();
   });
   
   // Drag and drop events
@@ -402,6 +677,33 @@ function initCreatorView() {
       handlePhotoSelected(files[0]);
     }
   });
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    galleryRoomDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      galleryRoomDropzone.classList.add('hover');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    galleryRoomDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      galleryRoomDropzone.classList.remove('hover');
+    }, false);
+  });
+
+  galleryRoomDropzone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    if (dt.files.length) {
+      handleGalleryRoomFiles(dt.files);
+    }
+  });
+
+  galleryRoomInput.addEventListener("change", (e) => {
+    if (e.target.files.length) {
+      handleGalleryRoomFiles(e.target.files);
+    }
+  });
   
   photoInput.addEventListener("change", (e) => {
     if (e.target.files.length) {
@@ -422,9 +724,21 @@ function initCreatorView() {
   
   // Setup sharing page buttons
   document.getElementById("btn-copy-url").addEventListener("click", copyShareUrl);
+  document.querySelectorAll("[data-copy-room-link]").forEach(btn => {
+    btn.addEventListener("click", () => copyRoomLink(btn.dataset.copyRoomLink));
+  });
+  document.getElementById("btn-native-share").addEventListener("click", shareLockLink);
   document.getElementById("btn-test-lock").addEventListener("click", () => {
     window.location.hash = document.getElementById("share-url-input").value.split("#")[1];
     checkUrlPayload();
+  });
+  document.getElementById("btn-send-room-chat").addEventListener("click", () => appendGalleryChatMessage('room'));
+  document.getElementById("btn-send-private-chat").addEventListener("click", () => appendGalleryChatMessage('private'));
+  document.getElementById("gallery-room-chat-input").addEventListener("keydown", (event) => {
+    if (event.key === 'Enter') appendGalleryChatMessage('room');
+  });
+  document.getElementById("private-third-chat-input").addEventListener("keydown", (event) => {
+    if (event.key === 'Enter') appendGalleryChatMessage('private');
   });
   document.getElementById("btn-reset-creator").addEventListener("click", () => {
     window.location.hash = "";
@@ -434,12 +748,71 @@ function initCreatorView() {
   
   // Load a single empty question by default
   addQuestionToCreatorForm();
+  renderGalleryRoomSlots();
+  updateCreatorMode();
+}
+
+function readAfterDarkConsent() {
+  const consent = {
+    adult: false,
+    depictedConsent: false,
+    noHiddenCapture: false,
+    recipientConsent: false,
+  };
+
+  document.querySelectorAll(".after-dark-consent").forEach(input => {
+    consent[input.dataset.consent] = input.checked;
+  });
+  return consent;
+}
+
+function readAfterDarkScenario() {
+  return buildAfterDarkScenario({
+    type: document.getElementById("scenario-type-select").value,
+    intensity: document.getElementById("scenario-intensity-select").value,
+    role: document.getElementById("gallery-partner-label").value.trim() || 'Partner',
+    customRole: '',
+    discreet: document.getElementById("discreet-toggle").checked,
+    expiresInHours: document.getElementById("after-dark-expiry-select").value,
+  });
+}
+
+function updateCreatorMode() {
+  document.querySelectorAll(".after-dark-only").forEach(el => {
+    el.classList.toggle("hidden", !db.afterDark);
+  });
+  document.querySelectorAll(".classic-only").forEach(el => {
+    el.classList.toggle("hidden", db.afterDark);
+  });
+  document.getElementById("btn-enter-after-dark").classList.toggle("hidden", db.afterDark);
+  document.getElementById("btn-exit-after-dark").classList.toggle("hidden", !db.afterDark);
+  document.getElementById("creator-title").innerText = db.afterDark ? "Create an After Dark Gallery Room" : "Create a Love Lock";
+  document.getElementById("creator-description").innerText = db.afterDark
+    ? "Upload a private gallery, invite the partner and third seats, and control the reveal."
+    : "Upload a photo and set questions your partner must answer to unlock it.";
+  document.getElementById("btn-generate-lock").innerText = db.afterDark ? "Seal Gallery Room" : "Generate My Love Lock";
+  document.getElementById("theme-section-title").innerText = db.afterDark ? "6. Choose App Theme" : "6. Choose App Theme";
+  applyBodyClasses(db.theme, db.afterDark);
+  updateDocumentTitle({ afterDark: db.afterDark, discreet: db.afterDark && document.getElementById("discreet-toggle").checked });
+  validateCreatorForm();
 }
 
 function handlePhotoSelected(file) {
   const uploadPrompt = document.getElementById("upload-prompt");
   const previewContainer = document.getElementById("upload-preview-container");
   const imgPreview = document.getElementById("image-preview");
+  const photoError = document.getElementById("photo-error");
+
+  const validation = validateImageFile(file);
+  if (!validation.valid) {
+    resetPhotoInput();
+    photoError.innerText = validation.message;
+    photoError.classList.remove("hidden");
+    return;
+  }
+
+  photoError.innerText = "";
+  photoError.classList.add("hidden");
   
   compressAndResizeImage(file).then(({ fullBase64, thumbBase64 }) => {
     db.photoBase64 = fullBase64;
@@ -451,7 +824,8 @@ function handlePhotoSelected(file) {
     validateCreatorForm();
   }).catch(err => {
     console.error("Image loading/compression failed", err);
-    alert("Could not load image. Please try a different format.");
+    photoError.innerText = "Could not load image. Please try a different format.";
+    photoError.classList.remove("hidden");
   });
 }
 
@@ -462,7 +836,105 @@ function resetPhotoInput() {
   document.getElementById("upload-prompt").classList.remove("hidden");
   document.getElementById("upload-preview-container").classList.add("hidden");
   document.getElementById("drop-zone").classList.remove("has-photo");
+  const photoError = document.getElementById("photo-error");
+  if (photoError) {
+    photoError.innerText = "";
+    photoError.classList.add("hidden");
+  }
   validateCreatorForm();
+}
+
+function renderGalleryRoomSlots() {
+  const slots = document.getElementById("gallery-room-slots");
+  if (!slots) return;
+
+  slots.innerHTML = Array.from({ length: 6 }).map((_, index) => {
+    const image = db.galleryRoomImages[index];
+    if (!image) {
+      return `
+        <button type="button" class="gallery-room-slot empty" data-gallery-slot="${index}" aria-label="Add gallery image ${index + 1}">
+          <span>${index + 1}</span>
+        </button>
+      `;
+    }
+
+    return `
+      <div class="gallery-room-slot filled">
+        <img src="${image.thumbBase64 || image.fullBase64}" alt="Gallery image ${index + 1}">
+        <button type="button" class="gallery-remove-btn" data-gallery-remove="${index}" aria-label="Remove gallery image ${index + 1}">
+          Remove
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  slots.querySelectorAll("[data-gallery-slot]").forEach(slot => {
+    slot.addEventListener("click", () => {
+      document.getElementById("gallery-room-input").click();
+    });
+  });
+
+  slots.querySelectorAll("[data-gallery-remove]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const index = Number(btn.dataset.galleryRemove);
+      db.galleryRoomImages.splice(index, 1);
+      renderGalleryRoomSlots();
+      validateCreatorForm();
+    });
+  });
+}
+
+async function handleGalleryRoomFiles(fileList) {
+  const files = Array.from(fileList);
+  const status = document.getElementById("gallery-room-status");
+  const galleryInput = document.getElementById("gallery-room-input");
+  const nextCount = db.galleryRoomImages.length + files.length;
+  const countValidation = validateGalleryImageCount(nextCount);
+
+  if (!countValidation.valid) {
+    status.innerText = countValidation.message;
+    status.classList.remove("hidden");
+    galleryInput.value = "";
+    validateCreatorForm();
+    return;
+  }
+
+  for (const file of files) {
+    const fileValidation = validateImageFile(file);
+    if (!fileValidation.valid) {
+      status.innerText = fileValidation.message;
+      status.classList.remove("hidden");
+      galleryInput.value = "";
+      validateCreatorForm();
+      return;
+    }
+  }
+
+  status.innerText = "Preparing encrypted gallery previews...";
+  status.classList.remove("hidden");
+
+  try {
+    const compressed = await Promise.all(files.map(file => compressAndResizeImage(file)));
+    compressed.forEach((image, index) => {
+      db.galleryRoomImages.push({
+        id: `img_${Date.now()}_${index}_${Math.floor(Math.random() * 1000)}`,
+        fullBase64: image.fullBase64,
+        thumbBase64: image.thumbBase64,
+        state: index === 0 && db.galleryRoomImages.length === 0 ? 'teased' : 'hidden',
+        visibleTo: ['creator'],
+      });
+    });
+    status.innerText = `${db.galleryRoomImages.length} image${db.galleryRoomImages.length === 1 ? '' : 's'} ready.`;
+    status.classList.add("hidden");
+    renderGalleryRoomSlots();
+  } catch (error) {
+    console.error("Gallery image loading/compression failed", error);
+    status.innerText = "Could not load one of those images. Please try a different format.";
+    status.classList.remove("hidden");
+  } finally {
+    galleryInput.value = "";
+    validateCreatorForm();
+  }
 }
 
 function addQuestionToCreatorForm(qText = '', qType = 'text', options = ['', ''], correctVal = '', hintText = '') {
@@ -563,42 +1035,92 @@ function addQuestionToCreatorForm(qText = '', qType = 'text', options = ['', '']
 
 function validateCreatorForm() {
   const generateBtn = document.getElementById("btn-generate-lock");
+  const formStatus = document.getElementById("creator-form-status");
   const questions = document.querySelectorAll(".question-item");
   
   let isValid = true;
+  let message = "Ready to seal your lock.";
   
-  if (!db.photoBase64) {
-    isValid = false;
-  }
-  
-  if (questions.length === 0) {
-    isValid = false;
-  }
-  
-  questions.forEach(qItem => {
-    const qText = qItem.querySelector(".q-text-input").value.trim();
-    if (!qText) isValid = false;
-    
-    const type = qItem.dataset.type;
-    if (type === 'text') {
-      const ans = qItem.querySelector(".q-answer-input").value.trim();
-      if (!ans) isValid = false;
-    } else {
-      const optionValInputs = qItem.querySelectorAll(".q-option-val");
-      let filledOptions = 0;
-      optionValInputs.forEach(optInp => {
-        if (optInp.value.trim()) filledOptions++;
-      });
-      if (filledOptions < 2) isValid = false;
+  if (db.afterDark) {
+    const countValidation = validateGalleryImageCount(db.galleryRoomImages.length);
+    const partnerLabel = document.getElementById("gallery-partner-label").value.trim();
+    const thirdLabel = document.getElementById("gallery-third-label").value.trim();
+
+    if (!countValidation.valid) {
+      isValid = false;
+      message = countValidation.message;
     }
-  });
+    if (!partnerLabel || !thirdLabel) {
+      isValid = false;
+      message = "Add a partner label and a third label for this room.";
+    }
+    if (!afterDarkConsentComplete(readAfterDarkConsent())) {
+      isValid = false;
+      message = "Confirm every After Dark consent item before sealing this room.";
+    }
+  } else {
+    if (!db.photoBase64) {
+      isValid = false;
+      message = "Add a photo to continue.";
+    }
+    
+    if (questions.length === 0) {
+      isValid = false;
+      message = "Add at least one question.";
+    }
+    
+    questions.forEach(qItem => {
+      const qText = qItem.querySelector(".q-text-input").value.trim();
+      if (!qText) {
+        isValid = false;
+        message = "Every question needs a prompt.";
+      }
+      
+      const type = qItem.dataset.type;
+      if (type === 'text') {
+        const ans = qItem.querySelector(".q-answer-input").value.trim();
+        if (!ans) {
+          isValid = false;
+          message = "Every text question needs a correct answer.";
+        }
+      } else {
+        const optionValInputs = qItem.querySelectorAll(".q-option-val");
+        const checkedRadio = qItem.querySelector(".option-correct-radio:checked");
+        let filledOptions = 0;
+        let selectedOptionHasValue = false;
+        optionValInputs.forEach(optInp => {
+          if (optInp.value.trim()) filledOptions++;
+        });
+        if (checkedRadio) {
+          const selectedInput = optionValInputs[parseInt(checkedRadio.value, 10)];
+          selectedOptionHasValue = Boolean(selectedInput && selectedInput.value.trim());
+        }
+        if (filledOptions < 2) {
+          isValid = false;
+          message = "Multiple choice questions need at least two options.";
+        } else if (!selectedOptionHasValue) {
+          isValid = false;
+          message = "Choose a filled option as the correct answer.";
+        }
+      }
+    });
+  }
   
   generateBtn.disabled = !isValid;
+  if (formStatus) {
+    formStatus.innerText = message;
+    formStatus.classList.toggle("ready", isValid);
+  }
 }
 
 // GENERATE LOVE LOCK PAYLOAD (Hybrid Zero-Knowledge)
 async function handleGenerateLock() {
   const generateBtn = document.getElementById("btn-generate-lock");
+  if (db.afterDark) {
+    await handleGenerateGalleryRoom(generateBtn);
+    return;
+  }
+
   generateBtn.innerText = "Encrypting Lock...";
   generateBtn.disabled = true;
   
@@ -607,7 +1129,9 @@ async function handleGenerateLock() {
 
     const qItems = document.querySelectorAll(".question-item");
     const parsedQuestions = [];
-    let combinedAnswersNormalized = ""; // Used to derive the AES key
+    const correctAnswers = []; // Used to derive the AES key
+    const vaultTitle = document.getElementById("vault-title-input").value.trim() || (db.afterDark ? "After Dark Scenario Vault" : "Love Lock Vault");
+    const afterDarkScenario = db.afterDark ? readAfterDarkScenario() : null;
     
     for (let qItem of qItems) {
       const qText = qItem.querySelector(".q-text-input").value.trim();
@@ -620,12 +1144,13 @@ async function handleGenerateLock() {
         const correctText = qItem.querySelector(".q-answer-input").value.trim();
         const hash = await hashString(correctText);
         correctTextForEncryption = correctText;
-        parsedQuestions.push({
+        parsedQuestions.push(buildPublicQuestion({
+          mode: db.mode,
           type: 'text',
           question: qText,
           answerHash: hash,
           hint: hint
-        });
+        }));
       } else {
         const optionInps = qItem.querySelectorAll(".q-option-val");
         const options = [];
@@ -649,16 +1174,17 @@ async function handleGenerateLock() {
         const hash = await hashString(correctText);
         correctTextForEncryption = correctText;
         
-        parsedQuestions.push({
+        parsedQuestions.push(buildPublicQuestion({
+          mode: db.mode,
           type: 'choice',
           question: qText,
           options: options,
           answerHash: hash,
           hint: hint
-        });
+        }));
       }
 
-      combinedAnswersNormalized += correctTextForEncryption.trim().toLowerCase().replace(/\s+/g, ' ');
+      correctAnswers.push(correctTextForEncryption);
     }
     
     // Setup for AES-GCM
@@ -666,6 +1192,7 @@ async function handleGenerateLock() {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     
     // Derive key from the concatenated exact answers
+    const combinedAnswersNormalized = combineNormalizedAnswers(correctAnswers);
     const derivedAesKey = await deriveKey(combinedAnswersNormalized, salt);
 
     // Build the private payload we want to encrypt
@@ -679,14 +1206,21 @@ async function handleGenerateLock() {
     const encryptedBase64 = bufferToBase64(encryptedBuffer);
     
     // Build the public payload to upload to the server
-    const publicPayload = {
-      q: parsedQuestions,
-      t: db.theme,
-      title: document.getElementById("vault-title-input").value.trim() || "Love Lock Vault",
-      encData: encryptedBase64,
+    const publicPayload = buildPublicPayload({
+      mode: db.mode,
+      questions: parsedQuestions,
+      theme: db.theme,
+      title: vaultTitle,
+      encryptedBase64,
       thumbBase64: db.photoThumbBase64,
-      createdAt: Date.now()
-    };
+      teaserEnabled: db.teaserEnabled,
+    });
+    publicPayload.createdAt = Date.now();
+    if (db.afterDark) {
+      publicPayload.surface = 'after-dark';
+      publicPayload.scenario = afterDarkScenario;
+      publicPayload.expiresInHours = afterDarkScenario.expiresInHours;
+    }
 
     // Upload to Supabase 
     // We assume a table named 'locks' with columns: id (text/uuid), payload (jsonb), created_at
@@ -714,6 +1248,10 @@ async function handleGenerateLock() {
     const shareUrl = `${window.location.origin}${window.location.pathname}#lock=${fragmentStr}`;
     
     document.getElementById("share-url-input").value = shareUrl;
+    db.lastShareMessage = db.afterDark
+      ? `I made you a private After Dark vault: ${vaultTitle}. Unlock it before it expires.`
+      : buildShareMessage(vaultTitle);
+    updateShareSummary(publicPayload);
     
     const sizeWarning = document.getElementById("payload-size-warning");
     sizeWarning.innerText = `Data Envelope: Secured in Database (Zero-Knowledge). Link length is optimized!`;
@@ -724,37 +1262,243 @@ async function handleGenerateLock() {
     console.error("Lock creation failed", error);
     alert(error.message || "An error occurred during encryption. Please try again.");
   } finally {
-    generateBtn.innerText = "Generate My Love Lock";
+    generateBtn.innerText = db.afterDark ? "Seal After Dark Vault" : "Generate My Love Lock";
     generateBtn.disabled = false;
   }
 }
 
-function copyShareUrl() {
+async function handleGenerateGalleryRoom(generateBtn) {
+  generateBtn.innerText = "Encrypting Room...";
+  generateBtn.disabled = true;
+
+  try {
+    if (!supabase) throw new Error("Supabase client is not configured. Please add .env variables.");
+
+    const mediaCountValidation = validateGalleryImageCount(db.galleryRoomImages.length);
+    if (!mediaCountValidation.valid) throw new Error(mediaCountValidation.message);
+
+    const createdAt = Date.now();
+    const roomKey = generateRandomString(24);
+    const creatorKey = generateRandomString(18);
+    const partnerKey = generateRandomString(18);
+    const thirdKey = generateRandomString(18);
+    const privateThirdKey = generateRandomString(24);
+    const salt = generateRandomString(16);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const derivedAesKey = await deriveKey(roomKey, salt);
+    const vaultTitle = document.getElementById("vault-title-input").value.trim() || "After Dark Gallery Room";
+
+    const publicPayload = buildGalleryRoomMetadata({
+      title: vaultTitle,
+      type: document.getElementById("scenario-type-select").value,
+      intensity: document.getElementById("scenario-intensity-select").value,
+      creatorLabel: document.getElementById("gallery-creator-label").value,
+      partnerLabel: document.getElementById("gallery-partner-label").value,
+      thirdLabel: document.getElementById("gallery-third-label").value,
+      coinMode: document.getElementById("gallery-coin-mode").value,
+      expiresInHours: document.getElementById("after-dark-expiry-select").value,
+      mediaCount: db.galleryRoomImages.length,
+      discreet: document.getElementById("discreet-toggle").checked,
+      createdAt,
+    });
+    publicPayload.t = db.theme;
+
+    const privatePayload = {
+      media: db.galleryRoomImages.map((image, index) => ({
+        id: image.id,
+        p: image.fullBase64,
+        thumb: image.thumbBase64,
+        state: image.state || (index === 0 ? 'teased' : 'hidden'),
+        visibleTo: image.visibleTo || ['creator'],
+      })),
+      roomChat: [{
+        id: `chat_${createdAt}`,
+        role: 'creator',
+        text: 'Room sealed. Partner and third seats are ready.',
+        ts: createdAt,
+      }],
+      privateThirdChat: [{
+        id: `private_${createdAt}`,
+        role: 'creator',
+        text: 'Private third lane is ready when they join.',
+        ts: createdAt,
+      }],
+      unlockRequests: [],
+      creatorSettings: {
+        note: document.getElementById("custom-message").value.trim(),
+        coinMode: publicPayload.coinMode,
+      },
+    };
+
+    const encryptedBuffer = await encryptData(JSON.stringify(privatePayload), derivedAesKey, iv);
+    publicPayload.encData = bufferToBase64(encryptedBuffer);
+
+    const lockIdBase = generateRandomString(8);
+    const { data: uploadData, error: uploadError } = await supabase
+      .from('locks')
+      .insert([{ id: lockIdBase, payload: publicPayload }])
+      .select();
+
+    if (uploadError) {
+      console.error("Supabase upload error:", uploadError);
+      throw new Error("Could not save to database. Check network or setup.");
+    }
+
+    const lockId = uploadData[0].id;
+    const ivBase64 = bufferToBase64(iv);
+    const roomFragment = `${lockId}.${salt}.${encodeURIComponent(ivBase64)}`;
+    const baseUrl = `${window.location.origin}${window.location.pathname}`;
+    const roleLinks = buildGalleryRoleLinks({
+      baseUrl,
+      roomId: roomFragment,
+      roomKey,
+      creatorKey,
+      partnerKey,
+      thirdKey,
+      privateThirdKey,
+    });
+
+    db.galleryRoleLinks = roleLinks;
+    db.lastShareMessage = `I made a private After Dark Gallery Room: ${publicPayload.title}. Join before it expires.`;
+
+    document.getElementById("share-url-input").value = roleLinks.partner;
+    document.getElementById("gallery-creator-link").value = roleLinks.creator;
+    document.getElementById("gallery-partner-link").value = roleLinks.partner;
+    document.getElementById("gallery-third-link").value = roleLinks.third;
+    updateShareSummary(publicPayload);
+
+    const sizeWarning = document.getElementById("payload-size-warning");
+    sizeWarning.innerText = "Room Envelope: encrypted media, role links, and mock coins ready.";
+    sizeWarning.classList.remove("warning");
+
+    switchView("share-view");
+  } catch (error) {
+    console.error("Gallery room creation failed", error);
+    alert(error.message || "An error occurred while sealing the room. Please try again.");
+  } finally {
+    generateBtn.innerText = "Seal Gallery Room";
+    generateBtn.disabled = false;
+  }
+}
+
+function setShareStatus(message) {
+  const status = document.getElementById("share-status");
+  if (status) status.innerText = message;
+}
+
+function updateShareSummary(payload) {
+  const modeEl = document.getElementById("share-summary-mode");
+  const teaserEl = document.getElementById("share-summary-teaser");
+  const expiryEl = document.getElementById("share-summary-expiry");
+  const scenarioEl = document.getElementById("share-summary-scenario");
+  const intensityEl = document.getElementById("share-summary-intensity");
+  const isAfterDark = payload.surface === 'after-dark' || payload.surface === 'after-dark-room';
+  const isGalleryRoom = payload.surface === 'after-dark-room';
+  if (modeEl) modeEl.innerText = isGalleryRoom ? "Gallery Room" : (payload.mode === 'strict' ? "Strict Private" : "Playful");
+  if (teaserEl) teaserEl.innerText = isGalleryRoom ? `${payload.mediaCount} image${payload.mediaCount === 1 ? '' : 's'}` : (payload.teaserEnabled ? "Blurred teaser" : "Hidden");
+  if (expiryEl) expiryEl.innerText = `${payload.expiresInHours || 24} hours`;
+  document.querySelectorAll(".after-dark-summary").forEach(el => {
+    el.classList.toggle("hidden", !isAfterDark);
+  });
+  const roomSharePanel = document.getElementById("gallery-room-share-panel");
+  if (roomSharePanel) roomSharePanel.classList.toggle("hidden", !isGalleryRoom);
+  if (scenarioEl) scenarioEl.innerText = formatScenarioLabel(payload.scenario?.type);
+  if (intensityEl) intensityEl.innerText = formatScenarioLabel(payload.scenario?.intensity);
+}
+
+async function copyShareUrl() {
   const urlInp = document.getElementById("share-url-input");
-  urlInp.select();
-  urlInp.setSelectionRange(0, 99999);
-  navigator.clipboard.writeText(urlInp.value).then(() => {
+  const url = urlInp.value;
+  try {
+    await navigator.clipboard.writeText(url);
     const copyBtn = document.getElementById("btn-copy-url");
     const origText = copyBtn.innerText;
-    copyBtn.innerText = "Copied! ❤️";
-    copyBtn.style.background = "#00f2fe";
-    copyBtn.style.color = "#0a050c";
+    copyBtn.innerText = "Copied";
+    setShareStatus("Link copied.");
     setTimeout(() => {
       copyBtn.innerText = origText;
-      copyBtn.style.background = "";
-      copyBtn.style.color = "";
     }, 2000);
-  });
+  } catch (error) {
+    urlInp.select();
+    urlInp.setSelectionRange(0, 99999);
+    setShareStatus("Copy failed. Select the link and copy it manually.");
+  }
+}
+
+async function copyRoomLink(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    setShareStatus("Role link copied.");
+  } catch (error) {
+    input.select();
+    input.setSelectionRange(0, 99999);
+    setShareStatus("Copy failed. Select the role link and copy it manually.");
+  }
+}
+
+async function shareLockLink() {
+  const url = document.getElementById("share-url-input").value;
+  const shareData = {
+    title: "LoveLock",
+    text: db.lastShareMessage || buildShareMessage("Love Lock Vault"),
+    url,
+  };
+
+  try {
+    if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
+      await navigator.share(shareData);
+      setShareStatus("Share sheet opened.");
+      return;
+    }
+    await copyShareUrl();
+    setShareStatus("Native sharing is unavailable here, so the link was copied.");
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      setShareStatus("Share cancelled.");
+      return;
+    }
+    await copyShareUrl();
+    setShareStatus("Sharing failed, so the link was copied instead.");
+  }
 }
 
 function resetCreatorState() {
   db.photoBase64 = null;
   db.photoThumbBase64 = null;
   db.theme = 'pink';
+  db.mode = 'playful';
+  db.teaserEnabled = false;
+  db.lastShareMessage = '';
+  db.afterDark = false;
+  db.adultGateAccepted = false;
+  db.galleryRoomImages = [];
+  db.galleryRoleLinks = null;
   resetPhotoInput();
   document.getElementById("questions-list").innerHTML = "";
   document.getElementById("custom-message").value = "";
   document.getElementById("vault-title-input").value = "";
+  document.getElementById("teaser-toggle").checked = false;
+  document.getElementById("discreet-toggle").checked = false;
+  document.getElementById("after-dark-expiry-select").value = "24";
+  document.getElementById("scenario-type-select").value = "ntr";
+  document.getElementById("scenario-intensity-select").value = "spicy";
+  document.getElementById("gallery-creator-label").value = "Her";
+  document.getElementById("gallery-partner-label").value = "Partner";
+  document.getElementById("gallery-third-label").value = "Third";
+  document.getElementById("gallery-coin-mode").value = "request";
+  renderGalleryRoomSlots();
+  const galleryStatus = document.getElementById("gallery-room-status");
+  if (galleryStatus) {
+    galleryStatus.innerText = "";
+    galleryStatus.classList.add("hidden");
+  }
+  document.querySelectorAll(".after-dark-consent").forEach(input => {
+    input.checked = false;
+  });
+  document.getElementById("photo-error").classList.add("hidden");
+  document.getElementById("photo-error").innerText = "";
   
   // Reset theme selector active class
   const themePicker = document.getElementById("theme-picker");
@@ -762,15 +1506,91 @@ function resetCreatorState() {
     btn.classList.remove("active");
     if (btn.dataset.theme === 'pink') btn.classList.add("active");
   });
-  document.body.className = "theme-pink";
+  applyBodyClasses("pink", false);
+
+  const modePicker = document.getElementById("unlock-mode-picker");
+  modePicker.querySelectorAll(".btn-mode-select").forEach(btn => {
+    const isPlayful = btn.dataset.mode === 'playful';
+    btn.classList.toggle("active", isPlayful);
+    btn.setAttribute("aria-pressed", isPlayful ? "true" : "false");
+  });
   
   addQuestionToCreatorForm();
+  updateCreatorMode();
 }
 
 // SOLVER VAULT DECODING & PLAYBACK
 async function checkUrlPayload() {
   const hash = window.location.hash;
-  if (hash.startsWith("#lock=")) {
+  if (hash.startsWith("#room=")) {
+    switchView("solver-view");
+    document.getElementById("vault-status-text").innerText = "Fetching room...";
+
+    try {
+      if (!supabase) throw new Error("Supabase client is not configured");
+
+      const params = new URLSearchParams(hash.slice(1));
+      const roomFragment = params.get("room");
+      const role = params.get("role");
+      const roomKey = params.get("roomKey");
+      const roleKey = params.get("roleKey");
+      const privateThirdKey = params.get("privateThirdKey");
+
+      if (!roomFragment || !role || !roomKey || !roleKey) {
+        throw new Error("Invalid room link format");
+      }
+
+      const parts = roomFragment.split(".");
+      if (parts.length !== 3) throw new Error("Invalid room payload format");
+
+      const { data, error } = await supabase
+        .from('locks')
+        .select('payload, created_at')
+        .eq('id', parts[0])
+        .single();
+
+      if (error || !data) {
+        throw new Error("Room not found. It may have expired or the link is incorrect.");
+      }
+
+      const publicPayload = data.payload;
+      if (publicPayload.surface !== 'after-dark-room' || !publicPayload.encData) {
+        throw new Error("This link does not point to a Gallery Room.");
+      }
+
+      const createdAt = data.created_at ? new Date(data.created_at).getTime() : (publicPayload.createdAt || Date.now());
+      if (Date.now() > getVaultExpiryMs(createdAt, publicPayload.expiresInHours || 24)) {
+        throw new Error("Room expired.");
+      }
+
+      const derivedAesKey = await deriveKey(roomKey, parts[1]);
+      const ivBytes = base64ToBuffer(decodeURIComponent(parts[2]));
+      const encryptedBytes = base64ToBuffer(publicPayload.encData);
+      const decryptedJson = await decryptData(encryptedBytes, derivedAesKey, ivBytes);
+      const privatePayload = JSON.parse(decryptedJson);
+
+      currentGalleryRoom = {
+        publicPayload: {
+          ...publicPayload,
+          createdAt,
+          salt: parts[1],
+          iv: parts[2],
+        },
+        privatePayload,
+        roleContext: {
+          role,
+          roomKey,
+          roleKey,
+          privateThirdKey,
+        },
+      };
+
+      setupGalleryRoomViewer();
+    } catch (e) {
+      console.error("Failed to decode room link", e);
+      window.location.href = "404.html";
+    }
+  } else if (hash.startsWith("#lock=")) {
     // Show a loading state if desired, replacing creator view while fetching
     switchView("solver-view"); // Just show the raw view for a moment
     document.getElementById("vault-status-text").innerText = "Fetching vault...";
@@ -806,6 +1626,10 @@ async function checkUrlPayload() {
         iv: parts[2],
         createdAt: data.created_at ? new Date(data.created_at).getTime() : (publicPayload.createdAt || Date.now())
       };
+
+      if (Date.now() > getVaultExpiryMs(currentSolverQuiz.createdAt, currentSolverQuiz.expiresInHours || 24)) {
+        throw new Error("Vault expired.");
+      }
       
       if (currentSolverQuiz && currentSolverQuiz.q && currentSolverQuiz.encData) {
         setupSolverQuiz(currentSolverQuiz);
@@ -821,17 +1645,229 @@ async function checkUrlPayload() {
   }
 }
 
+function getGalleryRoleLabel(role, scenario = {}) {
+  if (role === 'creator') return scenario.creatorLabel || 'Creator';
+  if (role === 'partner') return scenario.partnerLabel || 'Partner';
+  if (role === 'third') return scenario.thirdLabel || 'Third';
+  return 'Guest';
+}
+
+function setupGalleryRoomViewer() {
+  if (!currentGalleryRoom) return;
+
+  const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
+  const role = roleContext.role;
+  const scenario = publicPayload.scenario || {};
+  const roleLabel = getGalleryRoleLabel(role, scenario);
+
+  updateDocumentTitle({ afterDark: true, discreet: Boolean(publicPayload.discreet) });
+  applyBodyClasses(publicPayload.t || 'pink', true);
+  document.getElementById("solver-vault-title").innerText = publicPayload.discreet ? "Private Room" : publicPayload.title;
+  startGalleryRoomCountdown(publicPayload.createdAt, publicPayload.expiresInHours || 24);
+  document.getElementById("vault-wrapper").classList.add("hidden");
+  document.querySelector(".quiz-wrapper").classList.add("hidden");
+  document.getElementById("gallery-room-viewer").classList.remove("hidden");
+  document.getElementById("gallery-room-role-badge").innerText = roleLabel;
+  document.getElementById("gallery-room-viewer-title").innerText = publicPayload.discreet ? "Private Gallery Room" : publicPayload.title;
+  document.getElementById("gallery-room-viewer-summary").innerText =
+    `${formatScenarioLabel(scenario.type)} · ${formatScenarioLabel(scenario.intensity)} · ${publicPayload.mediaCount} image${publicPayload.mediaCount === 1 ? '' : 's'} · ${roleLabel} seat`;
+
+  document.getElementById("gallery-room-wallet").classList.toggle("hidden", role !== 'third');
+  document.getElementById("private-third-panel").classList.toggle("hidden", !canAccessPrivateThirdChat(role));
+
+  renderGalleryRoomImages();
+  renderGalleryRoomChats();
+}
+
+function startGalleryRoomCountdown(createdAtTimestamp, expiresInHours) {
+  const timerSpan = document.getElementById("countdown-timer");
+  if (!timerSpan) return;
+  if (timerInterval) clearInterval(timerInterval);
+
+  const updateTimer = () => {
+    const diff = getVaultExpiryMs(createdAtTimestamp, expiresInHours) - Date.now();
+    timerSpan.innerText = formatTimeRemaining(diff);
+    timerSpan.style.color = diff <= 0 ? "#ff4b72" : "";
+    if (diff <= 0) clearInterval(timerInterval);
+  };
+
+  updateTimer();
+  timerInterval = setInterval(updateTimer, 1000);
+}
+
+function renderGalleryRoomImages() {
+  if (!currentGalleryRoom) return;
+
+  const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
+  const role = roleContext.role;
+  const grid = document.getElementById("gallery-room-grid");
+  const coinMode = publicPayload.coinMode || 'request';
+
+  grid.innerHTML = (privatePayload.media || []).map((media, index) => {
+    const isCreator = role === 'creator';
+    const visibleTo = media.visibleTo || ['creator'];
+    const canViewFull = isCreator || visibleTo.includes(role) || visibleTo.includes('all') || media.state === 'unlocked';
+    const state = canViewFull ? 'unlocked' : (media.state || 'hidden');
+    const imageSrc = canViewFull ? media.p : (media.thumb || '');
+    const stateLabel = state === 'requested' ? 'Unlock requested' : state === 'teased' ? 'Teased preview' : state === 'unlocked' ? 'Unlocked' : 'Locked';
+    const thirdCanRequest = canRequestGalleryUnlock({ role, coinMode, imageState: media.state || 'hidden' });
+
+    let actionMarkup = '';
+    if (isCreator) {
+      if (media.state === 'requested') {
+        actionMarkup = `<button type="button" class="btn btn-primary btn-sm" data-gallery-approve="${index}">Approve Unlock</button>`;
+      } else if (media.state === 'unlocked') {
+        actionMarkup = `<button type="button" class="btn btn-secondary btn-sm" data-gallery-relock="${index}">Relock</button>`;
+      } else {
+        actionMarkup = `<button type="button" class="btn btn-secondary btn-sm" data-gallery-reveal="${index}">Reveal to Room</button>`;
+      }
+    } else if (role === 'third') {
+      if (media.state === 'requested') {
+        actionMarkup = `<button type="button" class="btn btn-secondary btn-sm" disabled>Requested</button>`;
+      } else if (thirdCanRequest) {
+        actionMarkup = `<button type="button" class="btn btn-primary btn-sm" data-gallery-request="${index}">${coinMode === 'auto' ? 'Spend 25 Coins' : 'Request for 25 Coins'}</button>`;
+      }
+    } else {
+      actionMarkup = `<span class="section-subtitle">Waiting on creator control.</span>`;
+    }
+
+    return `
+      <div class="viewer-gallery-item">
+        <div class="viewer-gallery-image ${state}">
+          ${imageSrc ? `<img src="${imageSrc}" alt="Gallery room image ${index + 1}">` : ''}
+          <span class="viewer-gallery-state">${stateLabel}</span>
+        </div>
+        <div class="viewer-gallery-actions">
+          ${actionMarkup}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  grid.querySelectorAll("[data-gallery-request]").forEach(btn => {
+    btn.addEventListener("click", () => requestGalleryUnlock(Number(btn.dataset.galleryRequest)));
+  });
+  grid.querySelectorAll("[data-gallery-approve]").forEach(btn => {
+    btn.addEventListener("click", () => approveGalleryUnlock(Number(btn.dataset.galleryApprove)));
+  });
+  grid.querySelectorAll("[data-gallery-reveal]").forEach(btn => {
+    btn.addEventListener("click", () => revealGalleryImage(Number(btn.dataset.galleryReveal)));
+  });
+  grid.querySelectorAll("[data-gallery-relock]").forEach(btn => {
+    btn.addEventListener("click", () => relockGalleryImage(Number(btn.dataset.galleryRelock)));
+  });
+}
+
+function renderGalleryRoomChats() {
+  if (!currentGalleryRoom) return;
+  renderGalleryChatLane("gallery-room-chat-list", currentGalleryRoom.privatePayload.roomChat || []);
+  renderGalleryChatLane("private-third-chat-list", currentGalleryRoom.privatePayload.privateThirdChat || []);
+}
+
+function renderGalleryChatLane(containerId, messages) {
+  const container = document.getElementById(containerId);
+  const scenario = currentGalleryRoom?.publicPayload?.scenario || {};
+  container.innerHTML = messages.map(message => `
+    <div class="gallery-chat-message">
+      <strong>${getGalleryRoleLabel(message.role, scenario)}</strong>
+      <span>${escapeHtml(message.text)}</span>
+    </div>
+  `).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendGalleryChatMessage(kind) {
+  if (!currentGalleryRoom) return;
+  const { roleContext, privatePayload } = currentGalleryRoom;
+  const isPrivate = kind === 'private';
+  if (isPrivate && !canAccessPrivateThirdChat(roleContext.role)) return;
+
+  const input = document.getElementById(isPrivate ? "private-third-chat-input" : "gallery-room-chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  const message = {
+    id: `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    role: roleContext.role,
+    text,
+    ts: Date.now(),
+  };
+
+  if (isPrivate) {
+    privatePayload.privateThirdChat = privatePayload.privateThirdChat || [];
+    privatePayload.privateThirdChat.push(message);
+  } else {
+    privatePayload.roomChat = privatePayload.roomChat || [];
+    privatePayload.roomChat.push(message);
+  }
+  input.value = "";
+  renderGalleryRoomChats();
+}
+
+function requestGalleryUnlock(index) {
+  const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
+  const media = privatePayload.media[index];
+  if (!media || !canRequestGalleryUnlock({ role: roleContext.role, coinMode: publicPayload.coinMode, imageState: media.state || 'hidden' })) return;
+
+  if (publicPayload.coinMode === 'auto') {
+    media.state = 'unlocked';
+    media.visibleTo = ['creator', 'partner', 'third'];
+  } else {
+    media.state = 'requested';
+    media.visibleTo = ['creator'];
+    privatePayload.unlockRequests = privatePayload.unlockRequests || [];
+    privatePayload.unlockRequests.push({ imageId: media.id, role: roleContext.role, coins: 25, ts: Date.now() });
+  }
+  renderGalleryRoomImages();
+}
+
+function approveGalleryUnlock(index) {
+  const media = currentGalleryRoom?.privatePayload?.media?.[index];
+  if (!media) return;
+  media.state = 'unlocked';
+  media.visibleTo = ['creator', 'partner', 'third'];
+  renderGalleryRoomImages();
+}
+
+function revealGalleryImage(index) {
+  approveGalleryUnlock(index);
+}
+
+function relockGalleryImage(index) {
+  const media = currentGalleryRoom?.privatePayload?.media?.[index];
+  if (!media) return;
+  media.state = 'hidden';
+  media.visibleTo = ['creator'];
+  renderGalleryRoomImages();
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 function setupSolverQuiz(quiz) {
+  quiz.mode = quiz.mode || 'playful';
+  const isAfterDark = quiz.surface === 'after-dark';
+  updateDocumentTitle({ afterDark: isAfterDark, discreet: Boolean(quiz.scenario?.discreet) });
   // Apply creator's chosen theme
-  document.body.className = `theme-${quiz.t || 'pink'}`;
+  applyBodyClasses(quiz.t || 'pink', isAfterDark);
+  document.getElementById("gallery-room-viewer").classList.add("hidden");
+  document.getElementById("vault-wrapper").classList.remove("hidden");
+  document.querySelector(".quiz-wrapper").classList.remove("hidden");
   
   // Set custom vault title
-  document.getElementById("solver-vault-title").innerText = quiz.title || "Love Lock Vault";
+  document.getElementById("solver-vault-title").innerText = quiz.scenario?.discreet ? "Private Vault" : (quiz.title || "Love Lock Vault");
   
   // Prep vault photo using the highly blurred thumbnail from the public payload
   const lockedImg = document.getElementById("locked-image");
   if (quiz.thumbBase64) {
     lockedImg.src = quiz.thumbBase64;
+    lockedImg.style.background = "";
   } else {
     lockedImg.src = "";
     lockedImg.style.background = "linear-gradient(45deg, #11050e 0%, #2a0b1f 100%)";
@@ -845,23 +1881,36 @@ function setupSolverQuiz(quiz) {
   overlay.classList.remove("unlocked");
   document.getElementById("heart-padlock").classList.remove("unlocked");
   document.getElementById("vault-status-text").innerText = "Locked Vault";
+  document.getElementById("vault-status-text").style.color = "";
   document.getElementById("key-drag-zone").classList.add("hidden");
   
   // Show quiz controls, hide success
-  document.getElementById("quiz-card").classList.remove("hidden");
+  document.getElementById("recipient-consent-card").classList.toggle("hidden", !isAfterDark);
+  document.getElementById("quiz-card").classList.toggle("hidden", isAfterDark);
   document.getElementById("unlocked-card").classList.add("hidden");
+  document.getElementById("question-container").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-action-bar").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-progress-container").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-step-info").classList.toggle("hidden", quiz.mode === 'strict');
+  document.getElementById("strict-question-container").classList.toggle("hidden", quiz.mode !== 'strict');
   
   // Reset states
   currentQuestionIndex = 0;
   // We will build this string up as they answer correctly
   currentSolverQuiz.solverAccumulatedAnswers = ""; 
 
-  loadSolverQuestion();
+  if (isAfterDark) {
+    renderRecipientConsentGate(quiz);
+  } else {
+    beginSolverChallenge();
+  }
   adjustProgressiveBlur();
   startCountdownTimer(currentSolverQuiz.createdAt);
   
   // Add listeners
   document.getElementById("btn-submit-answer").onclick = handleSolverSubmit;
+  document.getElementById("btn-tap-unlock").onclick = () => triggerUnlockReveal();
+  document.getElementById("btn-accept-recipient-consent").onclick = handleRecipientConsentAccept;
   document.getElementById("btn-create-own").onclick = () => {
     window.location.hash = "";
     resetCreatorState();
@@ -887,6 +1936,146 @@ function adjustProgressiveBlur() {
     overlay.style.backdropFilter = `blur(${overlayBlur}px)`;
     overlay.style.webkitBackdropFilter = `blur(${overlayBlur}px)`;
   }
+}
+
+function beginSolverChallenge() {
+  const quiz = currentSolverQuiz;
+  document.getElementById("recipient-consent-card").classList.add("hidden");
+  document.getElementById("quiz-card").classList.remove("hidden");
+  document.getElementById("question-container").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-action-bar").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-progress-container").classList.toggle("hidden", quiz.mode === 'strict');
+  document.querySelector(".quiz-step-info").classList.toggle("hidden", quiz.mode === 'strict');
+  document.getElementById("strict-question-container").classList.toggle("hidden", quiz.mode !== 'strict');
+
+  if (quiz.mode === 'strict') {
+    loadStrictSolverForm();
+  } else {
+    loadSolverQuestion();
+  }
+}
+
+function renderRecipientConsentGate(quiz) {
+  const scenario = quiz.scenario || {};
+  document.getElementById("recipient-consent-ack").checked = false;
+  document.getElementById("recipient-consent-error").classList.add("hidden");
+  document.getElementById("recipient-scenario-title").innerText = quiz.scenario?.discreet ? "Private scenario" : (quiz.title || "After Dark scenario");
+  document.getElementById("recipient-scenario-meta").innerHTML = `
+    <span>${formatScenarioLabel(scenario.type)}</span>
+    <span>${formatScenarioLabel(scenario.intensity)}</span>
+    <span>${scenario.role || 'Partner'}</span>
+    <span>${scenario.expiresInHours || 24}h expiry</span>
+  `;
+}
+
+function handleRecipientConsentAccept() {
+  const ack = document.getElementById("recipient-consent-ack");
+  const error = document.getElementById("recipient-consent-error");
+  if (!ack.checked) {
+    error.innerText = "Confirm you are 18+ and allowed to view this private vault.";
+    error.classList.remove("hidden");
+    return;
+  }
+  error.innerText = "";
+  error.classList.add("hidden");
+  beginSolverChallenge();
+}
+
+function loadStrictSolverForm() {
+  const quiz = currentSolverQuiz;
+  const strictContainer = document.getElementById("strict-question-container");
+  strictContainer.innerHTML = "";
+
+  const heading = document.createElement("h3");
+  heading.innerText = "Strict Private Unlock";
+  strictContainer.appendChild(heading);
+
+  const intro = document.createElement("p");
+  intro.className = "strict-intro";
+  intro.innerText = "Answer every question, then unlock once. Individual answers are not checked publicly.";
+  strictContainer.appendChild(intro);
+
+  quiz.q.forEach((qData, index) => {
+    const group = document.createElement("div");
+    group.className = "strict-question-item";
+
+    const label = document.createElement("label");
+    label.className = "strict-question-label";
+    label.setAttribute("for", `strict-answer-${index}`);
+    label.innerText = `${index + 1}. ${qData.question}`;
+    group.appendChild(label);
+
+    if (qData.type === 'choice') {
+      const select = document.createElement("select");
+      select.id = `strict-answer-${index}`;
+      select.className = "strict-answer-input";
+      select.dataset.index = String(index);
+
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.innerText = "Choose an answer";
+      select.appendChild(emptyOption);
+
+      (qData.options || []).forEach(optionText => {
+        const option = document.createElement("option");
+        option.value = optionText;
+        option.innerText = optionText;
+        select.appendChild(option);
+      });
+
+      group.appendChild(select);
+    } else {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = `strict-answer-${index}`;
+      input.className = "strict-answer-input";
+      input.dataset.index = String(index);
+      input.placeholder = "Type your answer";
+      input.autocomplete = "off";
+      group.appendChild(input);
+    }
+
+    if (qData.hint) {
+      const hint = document.createElement("p");
+      hint.className = "strict-hint";
+      hint.innerText = `Hint: ${qData.hint}`;
+      group.appendChild(hint);
+    }
+
+    strictContainer.appendChild(group);
+  });
+
+  const error = document.createElement("p");
+  error.id = "strict-unlock-error";
+  error.className = "field-error hidden";
+  error.setAttribute("aria-live", "polite");
+  strictContainer.appendChild(error);
+
+  const unlockButton = document.createElement("button");
+  unlockButton.type = "button";
+  unlockButton.className = "btn btn-primary btn-block btn-lg";
+  unlockButton.id = "btn-strict-unlock";
+  unlockButton.innerText = "Unlock Vault";
+  unlockButton.onclick = handleStrictUnlock;
+  strictContainer.appendChild(unlockButton);
+}
+
+async function handleStrictUnlock() {
+  const strictError = document.getElementById("strict-unlock-error");
+  const answers = Array.from(document.querySelectorAll(".strict-answer-input"))
+    .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+    .map(input => input.value.trim());
+
+  if (answers.some(answer => !answer)) {
+    strictError.innerText = "Answer every question before unlocking.";
+    strictError.classList.remove("hidden");
+    return;
+  }
+
+  strictError.classList.add("hidden");
+  strictError.innerText = "";
+  currentSolverQuiz.solverAccumulatedAnswers = combineNormalizedAnswers(answers);
+  await triggerUnlockReveal({ strictAttempt: true });
 }
 
 function loadSolverQuestion() {
@@ -985,7 +2174,7 @@ async function handleSolverSubmit() {
   
   if (submittedHash === qData.answerHash) {
     // Collect the exact answer string for AES key derivation later
-    currentSolverQuiz.solverAccumulatedAnswers += answerText.trim().toLowerCase().replace(/\s+/g, ' ');
+    currentSolverQuiz.solverAccumulatedAnswers += normalizeAnswer(answerText);
 
     currentQuestionIndex++;
     playCorrectSound(); // Play dynamic chime
@@ -1157,7 +2346,7 @@ function initGoldenKeyDrag() {
   window.addEventListener("touchend", dragEnd, { passive: false });
 }
 
-async function triggerUnlockReveal() {
+async function triggerUnlockReveal({ strictAttempt = false } = {}) {
   document.getElementById("quiz-card").classList.add("hidden");
   const statusText = document.getElementById("vault-status-text");
 
@@ -1204,14 +2393,24 @@ async function triggerUnlockReveal() {
     }, 1200);
   } catch (error) {
     console.error("Decryption failed:", error);
-    statusText.innerText = "Decryption Failed! Invalid Key.";
+    statusText.innerText = strictAttempt ? "Still Locked" : "Decryption Failed! Invalid Key.";
     statusText.style.color = "#ff4b72";
+    if (strictAttempt) {
+      document.getElementById("quiz-card").classList.remove("hidden");
+      const strictError = document.getElementById("strict-unlock-error");
+      if (strictError) {
+        strictError.innerText = "One or more answers are incorrect. Check them and try again.";
+        strictError.classList.remove("hidden");
+      }
+      return;
+    }
     alert("Cryptography Error: Decryption failed. Did you modify the URL?");
   }
 }
 
 // BURST CELEBRATION HEART CONFETTI
 function launchHeartConfetti() {
+  if (prefersReducedMotion()) return;
   const container = document.body;
   const count = 40;
   
@@ -1268,6 +2467,14 @@ function animateConfetti(el) {
 
 let timerInterval = null;
 
+function formatTimeRemaining(diff) {
+  if (diff <= 0) return "Expired";
+  const h = Math.floor(diff / (1000 * 60 * 60));
+  const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
+  const s = Math.floor((diff % (1000 * 60)) / 1000).toString().padStart(2, '0');
+  return `${h}h ${m}m ${s}s`;
+}
+
 function startCountdownTimer(createdAtTimestamp) {
   const timerSpan = document.getElementById("countdown-timer");
   if (!timerSpan) return;
@@ -1276,7 +2483,7 @@ function startCountdownTimer(createdAtTimestamp) {
   
   const updateTimer = () => {
     const now = Date.now();
-    const expiresAt = createdAtTimestamp + (24 * 60 * 60 * 1000); // 24 hours later
+    const expiresAt = getVaultExpiryMs(createdAtTimestamp, currentSolverQuiz?.expiresInHours || 24);
     const diff = expiresAt - now;
     
     if (diff <= 0) {
@@ -1286,11 +2493,7 @@ function startCountdownTimer(createdAtTimestamp) {
       return;
     }
     
-    const h = Math.floor(diff / (1000 * 60 * 60));
-    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
-    const s = Math.floor((diff % (1000 * 60)) / 1000).toString().padStart(2, '0');
-    
-    timerSpan.innerText = `${h}h ${m}m ${s}s`;
+    timerSpan.innerText = formatTimeRemaining(diff);
   };
   
   updateTimer();

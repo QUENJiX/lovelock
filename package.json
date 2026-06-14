@@ -2,9 +2,11 @@
   "name": "lovelock",
   "version": "1.0.0",
   "description": "LoveLock - The relationship quiz photo locker",
+  "type": "module",
   "main": "index.html",
   "scripts": {
     "dev": "vite",
+    "test": "node --test",
     "build": "vite build",
     "preview": "vite preview"
   },

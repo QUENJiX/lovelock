@@ -49,17 +49,110 @@
         <h1>Love<span>Lock</span></h1>
       </div>
       <p class="tagline">The relationship quiz vault</p>
+      <div class="header-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-enter-after-dark">After Dark</button>
+        <button type="button" class="btn btn-text btn-sm hidden" id="btn-exit-after-dark">Back to LoveLock</button>
+      </div>
     </header>
+
+    <!-- AFTER DARK ADULT GATE -->
+    <section id="after-dark-gate" class="view-panel">
+      <div class="card glass after-dark-gate-card">
+        <div class="card-header">
+          <p class="eyebrow">Adults Only</p>
+          <h2>LoveLock After Dark</h2>
+          <p>A private, encrypted scenario vault for consenting adult couples exploring kink dynamics together.</p>
+        </div>
+
+        <div class="gate-rules">
+          <p>Before entering, confirm:</p>
+          <ul>
+            <li>Everyone involved is 18+.</li>
+            <li>All media is consensually created and shared.</li>
+            <li>Voyeur dynamics mean invited watching or roleplay only.</li>
+            <li>Hidden camera, revenge, coercion, and non-consensual content are banned.</li>
+          </ul>
+        </div>
+
+        <div class="action-bar-multi">
+          <button type="button" class="btn btn-primary" id="btn-confirm-after-dark">I Agree, Enter After Dark</button>
+          <button type="button" class="btn btn-text" id="btn-cancel-after-dark">Stay in LoveLock</button>
+        </div>
+      </div>
+    </section>
 
     <!-- CREATOR VIEW -->
     <section id="creator-view" class="view-panel active">
       <div class="card glass">
         <div class="card-header">
-          <h2>Create a Love Lock</h2>
-          <p>Upload a photo and set questions your partner must answer to unlock it.</p>
+          <p class="eyebrow after-dark-only hidden">After Dark Gallery Room</p>
+          <h2 id="creator-title">Create a Love Lock</h2>
+          <p id="creator-description">Upload a photo and set questions your partner must answer to unlock it.</p>
         </div>
 
-        <div class="form-group">
+        <div class="form-group after-dark-only hidden" id="after-dark-scenario-panel">
+          <label class="section-title">Scenario</label>
+          <p class="section-subtitle">Frame the room as a consensual adult dynamic shared by invited roles.</p>
+          <div class="scenario-grid">
+            <label>
+              <span class="input-label">Dynamic</span>
+              <select id="scenario-type-select">
+                <option value="ntr">NTR fantasy</option>
+                <option value="hotwife">Hotwife</option>
+                <option value="cuckold">Cuckold</option>
+                <option value="voyeur">Consensual voyeur</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>
+              <span class="input-label">Intensity</span>
+              <select id="scenario-intensity-select">
+                <option value="soft">Soft</option>
+                <option value="spicy" selected>Spicy</option>
+                <option value="intense">Intense</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group after-dark-only hidden" id="gallery-room-panel">
+          <label class="section-title">1. Gallery Room Media</label>
+          <p class="section-subtitle">Upload 1-6 consensual images. The creator link controls what partner and third seats can see.</p>
+          <div class="gallery-room-dropzone" id="gallery-room-dropzone">
+            <input type="file" id="gallery-room-input" accept="image/*" multiple class="gallery-room-input">
+            <div class="gallery-room-dropcopy">
+              <span>Choose up to 6 images</span>
+              <span>Compressed locally, encrypted before saving.</span>
+            </div>
+          </div>
+          <div class="gallery-room-slots" id="gallery-room-slots" aria-label="Gallery room media slots"></div>
+          <p class="field-error hidden" id="gallery-room-status" aria-live="polite"></p>
+
+          <div class="gallery-room-settings">
+            <label>
+              <span class="input-label">Creator label</span>
+              <input type="text" id="gallery-creator-label" value="Her" placeholder="e.g. Her">
+            </label>
+            <label>
+              <span class="input-label">Partner/Cuck label</span>
+              <input type="text" id="gallery-partner-label" value="Partner" placeholder="e.g. Husband, boyfriend">
+            </label>
+            <label>
+              <span class="input-label">Third label</span>
+              <input type="text" id="gallery-third-label" value="Third" placeholder="e.g. Third, invited watcher">
+            </label>
+            <label>
+              <span class="input-label">Coin behavior</span>
+              <select id="gallery-coin-mode">
+                <option value="request" selected>Coins request unlocks</option>
+                <option value="auto">Coins unlock eligible images</option>
+                <option value="off">Coins off</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group classic-only">
           <label class="section-title">1. Choose a Photo</label>
           <div class="upload-zone" id="drop-zone">
             <input type="file" id="photo-input" accept="image/*" class="file-input">
@@ -80,9 +173,10 @@
               </button>
             </div>
           </div>
+          <p class="field-error hidden" id="photo-error" aria-live="polite"></p>
         </div>
 
-        <div class="form-group">
+        <div class="form-group classic-only">
           <label class="section-title">2. Add Relationship Trivia</label>
           <p class="section-subtitle">Make them prove they remember!</p>
           
@@ -107,8 +201,60 @@
           <textarea id="custom-message" placeholder="e.g. Yay! You remembered! Love you ❤️ Here's your reward..." rows="3"></textarea>
         </div>
 
+        <div class="form-group classic-only">
+          <label class="section-title">5. Privacy & Sharing</label>
+          <p class="section-subtitle">Choose how private the challenge should be.</p>
+          <div class="mode-picker-grid" id="unlock-mode-picker" role="group" aria-label="Unlock mode">
+            <button type="button" class="btn-mode-select active" data-mode="playful" aria-pressed="true">
+              <span class="mode-title">Playful</span>
+              <span class="mode-copy">Instant feedback and progressive reveal.</span>
+            </button>
+            <button type="button" class="btn-mode-select" data-mode="strict" aria-pressed="false">
+              <span class="mode-title">Strict Private</span>
+              <span class="mode-copy">No public answer hashes. Unlock only after all answers.</span>
+            </button>
+          </div>
+          <label class="toggle-row" for="teaser-toggle">
+            <input type="checkbox" id="teaser-toggle">
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span>
+              <span class="toggle-title">Allow blurred teaser preview</span>
+              <span class="toggle-copy">Off by default. If enabled, the low-res blurred preview is public.</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="form-group after-dark-only hidden" id="after-dark-consent-panel">
+          <label class="section-title">6. Consent & Expiry</label>
+          <p class="section-subtitle">After Dark vaults require explicit consent boundaries before sealing.</p>
+          <div class="consent-list">
+            <label><input type="checkbox" class="after-dark-consent" data-consent="adult"> Everyone involved is 18+.</label>
+            <label><input type="checkbox" class="after-dark-consent" data-consent="depictedConsent"> Everyone depicted consented to this media and this use.</label>
+            <label><input type="checkbox" class="after-dark-consent" data-consent="noHiddenCapture"> This is not hidden camera, revenge, coercive, or non-consensual content.</label>
+            <label><input type="checkbox" class="after-dark-consent" data-consent="recipientConsent"> The recipient is allowed to view this private vault.</label>
+          </div>
+          <div class="scenario-grid compact">
+            <label>
+              <span class="input-label">Guest expiry</span>
+              <select id="after-dark-expiry-select">
+                <option value="1">1 hour</option>
+                <option value="12">12 hours</option>
+                <option value="24" selected>24 hours</option>
+              </select>
+            </label>
+            <label class="toggle-row compact-toggle" for="discreet-toggle">
+              <input type="checkbox" id="discreet-toggle">
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span>
+                <span class="toggle-title">Discreet mode</span>
+                <span class="toggle-copy">Use neutral titles on shared screens.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div class="form-group">
-          <label class="section-title">5. Choose App Theme</label>
+          <label class="section-title" id="theme-section-title">6. Choose App Theme</label>
           <p class="section-subtitle">Select a color scheme for the unlock screen.</p>
           <div class="theme-picker-grid" id="theme-picker">
             <button type="button" class="btn-theme-select active" data-theme="pink">
@@ -123,10 +269,17 @@
           </div>
         </div>
 
+        <div class="after-dark-only hidden pro-upsell-card">
+          <p class="eyebrow">After Dark Pro</p>
+          <h3>Built for repeat play</h3>
+          <p>Couple workspaces, saved roles, vault history, burn/revoke controls, premium scenario drops, and future video vaults will unlock with Pro.</p>
+        </div>
+
         <div class="action-bar">
           <button class="btn btn-primary btn-lg btn-block" id="btn-generate-lock" disabled>
             Generate My Love Lock
           </button>
+          <p class="form-status" id="creator-form-status" aria-live="polite">Add a photo and at least one complete question to generate a lock.</p>
         </div>
       </div>
     </section>
@@ -148,12 +301,56 @@
         </div>
         
         <h2>Lock Sealed Successfully!</h2>
-        <p class="share-desc">Copy this link and send it to your partner.</p>
-        <p class="share-desc" style="color: #ff4b72; font-weight: 600;">⏳ Warning: This lock and inside photo will self-destruct in 24 hours.</p>
+        <p class="share-desc">Copy or share this link with your partner.</p>
+        <p class="share-desc share-warning">This lock and inside photo self-destruct after 24 hours.</p>
         
         <div class="share-url-container">
           <input type="text" id="share-url-input" readonly>
           <button class="btn btn-primary" id="btn-copy-url">Copy Link</button>
+        </div>
+
+        <div class="gallery-room-share-panel hidden" id="gallery-room-share-panel" aria-label="Gallery room role links">
+          <div class="gallery-room-link-card creator-link-card">
+            <span class="summary-label">Creator management link</span>
+            <strong>Keep this private</strong>
+            <input type="text" id="gallery-creator-link" readonly>
+            <button type="button" class="btn btn-secondary btn-sm" data-copy-room-link="gallery-creator-link">Copy Creator Link</button>
+          </div>
+          <div class="gallery-room-link-card">
+            <span class="summary-label">Partner/Cuck invite</span>
+            <strong>Room chat only</strong>
+            <input type="text" id="gallery-partner-link" readonly>
+            <button type="button" class="btn btn-secondary btn-sm" data-copy-room-link="gallery-partner-link">Copy Partner Link</button>
+          </div>
+          <div class="gallery-room-link-card">
+            <span class="summary-label">Third invite</span>
+            <strong>Room + private chat</strong>
+            <input type="text" id="gallery-third-link" readonly>
+            <button type="button" class="btn btn-secondary btn-sm" data-copy-room-link="gallery-third-link">Copy Third Link</button>
+          </div>
+        </div>
+
+        <div class="share-summary" aria-label="Lock sharing summary">
+          <div>
+            <span class="summary-label">Unlock mode</span>
+            <strong id="share-summary-mode">Playful</strong>
+          </div>
+          <div>
+            <span class="summary-label">Teaser</span>
+            <strong id="share-summary-teaser">Hidden</strong>
+          </div>
+          <div>
+            <span class="summary-label">Expires</span>
+            <strong id="share-summary-expiry">24 hours</strong>
+          </div>
+          <div class="after-dark-summary hidden">
+            <span class="summary-label">Scenario</span>
+            <strong id="share-summary-scenario">Private</strong>
+          </div>
+          <div class="after-dark-summary hidden">
+            <span class="summary-label">Intensity</span>
+            <strong id="share-summary-intensity">Spicy</strong>
+          </div>
         </div>
 
         <div class="stats-badge">
@@ -161,9 +358,11 @@
         </div>
 
         <div class="action-bar-multi">
+          <button class="btn btn-primary" id="btn-native-share">Share</button>
           <button class="btn btn-secondary" id="btn-test-lock">Test Your Lock</button>
           <button class="btn btn-text" id="btn-reset-creator">Create Another</button>
         </div>
+        <p class="form-status" id="share-status" aria-live="polite"></p>
       </div>
     </section>
 
@@ -176,7 +375,7 @@
       <div class="solver-layout">
         
         <!-- Blurred Vault Photo Card -->
-        <div class="vault-wrapper">
+        <div class="vault-wrapper" id="vault-wrapper">
           <div class="vault-card glass" id="vault-card">
             <div class="vault-overlay" id="vault-overlay">
               <div class="lock-mechanism">
@@ -195,6 +394,7 @@
                 <div class="key-drag-zone hidden" id="key-drag-zone">
                   <p class="drag-instructions">Drag key to the heart lock!</p>
                   <div class="golden-key" id="golden-key">🔑</div>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-tap-unlock">Tap to Unlock</button>
                 </div>
               </div>
             </div>
@@ -204,8 +404,64 @@
           </div>
         </div>
 
+        <div class="gallery-room-viewer hidden" id="gallery-room-viewer">
+          <div class="card glass gallery-room-hero">
+            <div>
+              <p class="eyebrow">After Dark Gallery Room</p>
+              <h3 id="gallery-room-viewer-title">Private Room</h3>
+              <p class="section-subtitle" id="gallery-room-viewer-summary">Role-specific room loading...</p>
+            </div>
+            <span class="gallery-role-badge" id="gallery-room-role-badge">Role</span>
+          </div>
+
+          <div class="gallery-room-grid-panel card glass">
+            <div class="gallery-room-panel-header">
+              <div>
+                <h3>Gallery</h3>
+                <p class="section-subtitle">Creator controls the reveal. Coin actions are mocked in this prototype.</p>
+              </div>
+              <div class="coin-wallet hidden" id="gallery-room-wallet">120 coins</div>
+            </div>
+            <div class="viewer-gallery-grid" id="gallery-room-grid"></div>
+          </div>
+
+          <div class="gallery-chat-layout">
+            <div class="card glass gallery-chat-card">
+              <h3>Room Chat</h3>
+              <div class="gallery-chat-list" id="gallery-room-chat-list"></div>
+              <div class="gallery-chat-compose">
+                <input type="text" id="gallery-room-chat-input" placeholder="Add a room message">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-send-room-chat">Send</button>
+              </div>
+            </div>
+
+            <div class="card glass gallery-chat-card" id="private-third-panel">
+              <h3>Private Third Chat</h3>
+              <p class="section-subtitle">Only creator and third can see this lane.</p>
+              <div class="gallery-chat-list" id="private-third-chat-list"></div>
+              <div class="gallery-chat-compose">
+                <input type="text" id="private-third-chat-input" placeholder="Add a private message">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-send-private-chat">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Quiz Form Card -->
         <div class="quiz-wrapper">
+          <div class="card glass after-dark-recipient-card hidden" id="recipient-consent-card">
+            <p class="eyebrow">After Dark Vault</p>
+            <h3 id="recipient-scenario-title">Private scenario</h3>
+            <div class="scenario-pill-row" id="recipient-scenario-meta"></div>
+            <p class="section-subtitle">Confirm you are an adult and allowed to view this consensual private vault before unlocking.</p>
+            <label class="consent-ack-row">
+              <input type="checkbox" id="recipient-consent-ack">
+              <span>I am 18+ and consent to view this private scenario.</span>
+            </label>
+            <button type="button" class="btn btn-primary btn-block" id="btn-accept-recipient-consent">Continue to Unlock</button>
+            <p class="field-error hidden" id="recipient-consent-error" aria-live="polite"></p>
+          </div>
+
           <div class="card glass" id="quiz-card">
             
             <!-- Progress Bar -->
@@ -234,6 +490,10 @@
                 <span class="warning-emoji">🛋️</span>
                 <span class="warning-text" id="warning-text">Wrong answer! Couch mode activated. Try again!</span>
               </div>
+            </div>
+
+            <div id="strict-question-container" class="strict-question-container hidden">
+              <!-- Strict private unlock form renders here -->
             </div>
 
             <div class="quiz-action-bar">
