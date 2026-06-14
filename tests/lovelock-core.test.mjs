@@ -2,18 +2,24 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   afterDarkConsentComplete,
+  appendGalleryRoomMessage,
   buildGalleryRoleLinks,
   buildGalleryRoomMetadata,
+  buildPersistedRoomPayload,
   buildAfterDarkScenario,
   buildPublicPayload,
   buildPublicQuestion,
   buildShareMessage,
+  burnGalleryRoomPayload,
   canAccessPrivateThirdChat,
   canRequestGalleryUnlock,
   combineNormalizedAnswers,
   getDisplayTitle,
+  getProPlanCatalog,
   getVaultExpiryMs,
+  mutateGalleryImageState,
   normalizeAnswer,
+  requestGalleryImageUnlock,
   validateGalleryImageCount,
   validateImageFile,
 } from '../app.js';
@@ -232,4 +238,92 @@ test('canRequestGalleryUnlock only allows third in coin request modes', () => {
   assert.equal(canRequestGalleryUnlock({ role: 'third', coinMode: 'off', imageState: 'hidden' }), false);
   assert.equal(canRequestGalleryUnlock({ role: 'partner', coinMode: 'request', imageState: 'hidden' }), false);
   assert.equal(canRequestGalleryUnlock({ role: 'third', coinMode: 'request', imageState: 'unlocked' }), false);
+});
+
+test('appendGalleryRoomMessage blocks partner from private third chat', () => {
+  const room = { roomChat: [], privateThirdChat: [] };
+  const result = appendGalleryRoomMessage(room, {
+    lane: 'private',
+    role: 'partner',
+    text: 'nope',
+    ts: 1000,
+    roomStatus: 'active',
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.message, 'This role cannot write to that chat.');
+  assert.deepEqual(room.privateThirdChat, []);
+});
+
+test('appendGalleryRoomMessage appends allowed room chat', () => {
+  const room = { roomChat: [], privateThirdChat: [] };
+  const result = appendGalleryRoomMessage(room, {
+    lane: 'room',
+    role: 'third',
+    text: '  hello room  ',
+    ts: 1000,
+    roomStatus: 'active',
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.payload.roomChat[0].text, 'hello room');
+  assert.equal(room.roomChat.length, 0);
+});
+
+test('requestGalleryImageUnlock marks eligible image requested', () => {
+  const room = { media: [{ id: 'one', state: 'hidden', visibleTo: ['creator'] }], unlockRequests: [] };
+  const result = requestGalleryImageUnlock(room, {
+    index: 0,
+    role: 'third',
+    coinMode: 'request',
+    ts: 2000,
+    roomStatus: 'active',
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.payload.media[0].state, 'requested');
+  assert.equal(result.payload.unlockRequests[0].coins, 25);
+  assert.equal(room.media[0].state, 'hidden');
+});
+
+test('mutateGalleryImageState lets creator approve reveal and relock', () => {
+  const room = { media: [{ id: 'one', state: 'requested', visibleTo: ['creator'] }] };
+  const approved = mutateGalleryImageState(room, { index: 0, role: 'creator', action: 'approve', roomStatus: 'active' });
+  assert.equal(approved.payload.media[0].state, 'unlocked');
+  assert.deepEqual(approved.payload.media[0].visibleTo, ['creator', 'partner', 'third']);
+
+  const relocked = mutateGalleryImageState(approved.payload, { index: 0, role: 'creator', action: 'relock', roomStatus: 'active' });
+  assert.equal(relocked.payload.media[0].state, 'hidden');
+  assert.deepEqual(relocked.payload.media[0].visibleTo, ['creator']);
+});
+
+test('burnGalleryRoomPayload replaces room state with burned payload for creator only', () => {
+  const room = { media: [{ id: 'one' }], roomChat: [{ text: 'x' }], privateThirdChat: [{ text: 'y' }] };
+  const burned = burnGalleryRoomPayload(room, { role: 'creator', ts: 3000 });
+
+  assert.equal(burned.changed, true);
+  assert.equal(burned.payload.burnedAt, 3000);
+  assert.deepEqual(burned.payload.media, []);
+  assert.equal(burnGalleryRoomPayload(room, { role: 'third', ts: 3000 }).changed, false);
+});
+
+test('buildPersistedRoomPayload increments revision and strips local key fields', () => {
+  const result = buildPersistedRoomPayload({
+    publicPayload: { title: 'Room', revision: 2, salt: 'local', iv: 'local', roomId: 'abc' },
+    encryptedBase64: 'cipher',
+    roomStatus: 'active',
+    updatedAt: 4000,
+  });
+
+  assert.equal(result.revision, 3);
+  assert.equal(result.encData, 'cipher');
+  assert.equal(result.salt, undefined);
+  assert.equal(result.iv, undefined);
+  assert.equal(result.roomId, undefined);
+});
+
+test('getProPlanCatalog exposes recurring plans without lifetime option', () => {
+  const plans = getProPlanCatalog();
+  assert.equal(plans.some(plan => plan.interval === 'lifetime'), false);
+  assert.deepEqual(plans.map(plan => plan.interval), ['monthly', 'annual']);
 });

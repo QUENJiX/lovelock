@@ -28,6 +28,8 @@ let db = {
 
 let currentSolverQuiz = null; // Decoded state for solver
 let currentGalleryRoom = null;
+let galleryRoomSyncInterval = null;
+let galleryRoomSyncInFlight = false;
 let currentQuestionIndex = 0;
 let solverSelectedOption = null;
 
@@ -204,6 +206,155 @@ export function canAccessPrivateThirdChat(role) {
 
 export function canRequestGalleryUnlock({ role, coinMode, imageState }) {
   return role === 'third' && ['request', 'auto'].includes(coinMode) && imageState !== 'unlocked';
+}
+
+function cloneRoomPayload(payload) {
+  return JSON.parse(JSON.stringify(payload || {}));
+}
+
+function blockedRoomMutation(roomStatus) {
+  return roomStatus === 'burned' || roomStatus === 'expired';
+}
+
+export function appendGalleryRoomMessage(payload, { lane, role, text, ts, roomStatus = 'active' }) {
+  const next = cloneRoomPayload(payload);
+  const cleanText = String(text || '').trim();
+
+  if (blockedRoomMutation(roomStatus)) {
+    return { changed: false, payload: next, message: 'This room is no longer accepting updates.' };
+  }
+  if (!cleanText) {
+    return { changed: false, payload: next, message: 'Message cannot be empty.' };
+  }
+  if (lane === 'private' && !canAccessPrivateThirdChat(role)) {
+    return { changed: false, payload: next, message: 'This role cannot write to that chat.' };
+  }
+
+  const targetKey = lane === 'private' ? 'privateThirdChat' : 'roomChat';
+  next[targetKey] = next[targetKey] || [];
+  next[targetKey].push({
+    id: `msg_${ts}_${next[targetKey].length}`,
+    role,
+    text: cleanText,
+    ts,
+  });
+
+  return { changed: true, payload: next };
+}
+
+export function requestGalleryImageUnlock(payload, { index, role, coinMode, ts, roomStatus = 'active' }) {
+  const next = cloneRoomPayload(payload);
+  const media = next.media?.[index];
+
+  if (blockedRoomMutation(roomStatus)) {
+    return { changed: false, payload: next, message: 'This room is no longer accepting updates.' };
+  }
+  if (!media || !canRequestGalleryUnlock({ role, coinMode, imageState: media.state || 'hidden' })) {
+    return { changed: false, payload: next, message: 'This image cannot be requested.' };
+  }
+
+  if (coinMode === 'auto') {
+    media.state = 'unlocked';
+    media.visibleTo = ['creator', 'partner', 'third'];
+    return { changed: true, payload: next };
+  }
+
+  media.state = 'requested';
+  media.visibleTo = ['creator'];
+  next.unlockRequests = next.unlockRequests || [];
+  next.unlockRequests.push({
+    imageId: media.id,
+    role,
+    coins: 25,
+    ts,
+  });
+
+  return { changed: true, payload: next };
+}
+
+export function mutateGalleryImageState(payload, { index, role, action, roomStatus = 'active' }) {
+  const next = cloneRoomPayload(payload);
+  const media = next.media?.[index];
+
+  if (blockedRoomMutation(roomStatus)) {
+    return { changed: false, payload: next, message: 'This room is no longer accepting updates.' };
+  }
+  if (role !== 'creator') {
+    return { changed: false, payload: next, message: 'Only the creator can control gallery state.' };
+  }
+  if (!media) {
+    return { changed: false, payload: next, message: 'Image not found.' };
+  }
+
+  if (action === 'relock') {
+    media.state = 'hidden';
+    media.visibleTo = ['creator'];
+    return { changed: true, payload: next };
+  }
+
+  if (action === 'approve' || action === 'reveal') {
+    media.state = 'unlocked';
+    media.visibleTo = ['creator', 'partner', 'third'];
+    return { changed: true, payload: next };
+  }
+
+  return { changed: false, payload: next, message: 'Unsupported gallery action.' };
+}
+
+export function burnGalleryRoomPayload(payload, { role, ts }) {
+  if (role !== 'creator') {
+    return { changed: false, payload: cloneRoomPayload(payload), message: 'Only the creator can burn this room.' };
+  }
+
+  return {
+    changed: true,
+    payload: {
+      media: [],
+      roomChat: [],
+      privateThirdChat: [],
+      unlockRequests: [],
+      creatorSettings: {},
+      burnedAt: ts,
+    },
+  };
+}
+
+export function buildPersistedRoomPayload({ publicPayload, encryptedBase64, roomStatus = 'active', updatedAt = Date.now() }) {
+  const {
+    salt,
+    iv,
+    roomId,
+    ...persistable
+  } = publicPayload || {};
+
+  return {
+    ...persistable,
+    encData: encryptedBase64,
+    roomStatus,
+    revision: Number(publicPayload?.revision || 0) + 1,
+    updatedAt,
+  };
+}
+
+export function getProPlanCatalog() {
+  return [
+    {
+      id: 'after-dark-monthly',
+      name: 'After Dark Pro Monthly',
+      interval: 'monthly',
+      priceLabel: '$19/mo',
+      cta: 'Checkout not live yet',
+      features: ['Longer room expiry', 'More active rooms', 'Saved role labels', 'Burn/revoke history'],
+    },
+    {
+      id: 'after-dark-annual',
+      name: 'After Dark Pro Annual',
+      interval: 'annual',
+      priceLabel: '$149/yr',
+      cta: 'Checkout not live yet',
+      features: ['Discounted recurring plan', 'Premium scenario drops', 'Larger media limits', 'Future video vaults'],
+    },
+  ];
 }
 
 export function buildShareMessage(title) {
@@ -568,12 +719,15 @@ function switchView(viewId) {
   
   // Custom headers/actions on view change
   if (viewId === 'creator-view') {
+    stopGalleryRoomPolling();
     document.querySelector('.app-header').classList.remove('hidden');
     // Preview theme in creator view too
     applyBodyClasses(db.theme, db.afterDark);
     updateDocumentTitle();
   } else if (viewId === 'solver-view') {
     document.querySelector('.app-header').classList.add('hidden');
+  } else {
+    stopGalleryRoomPolling();
   }
 }
 
@@ -740,6 +894,7 @@ function initCreatorView() {
   document.getElementById("private-third-chat-input").addEventListener("keydown", (event) => {
     if (event.key === 'Enter') appendGalleryChatMessage('private');
   });
+  document.getElementById("btn-burn-gallery-room").addEventListener("click", burnCurrentGalleryRoom);
   document.getElementById("btn-reset-creator").addEventListener("click", () => {
     window.location.hash = "";
     resetCreatorState();
@@ -794,7 +949,27 @@ function updateCreatorMode() {
   document.getElementById("theme-section-title").innerText = db.afterDark ? "6. Choose App Theme" : "6. Choose App Theme";
   applyBodyClasses(db.theme, db.afterDark);
   updateDocumentTitle({ afterDark: db.afterDark, discreet: db.afterDark && document.getElementById("discreet-toggle").checked });
+  renderProPlanCards();
   validateCreatorForm();
+}
+
+function renderProPlanCards() {
+  const grid = document.getElementById("pro-plan-cards");
+  if (!grid) return;
+
+  grid.innerHTML = getProPlanCatalog().map(plan => `
+    <article class="pro-plan-card">
+      <div>
+        <span class="summary-label">${plan.interval}</span>
+        <h4>${plan.name}</h4>
+        <strong class="pro-plan-price">${plan.priceLabel}</strong>
+      </div>
+      <ul class="pro-plan-features">
+        ${plan.features.map(feature => `<li>${feature}</li>`).join('')}
+      </ul>
+      <button type="button" class="btn btn-secondary btn-sm" disabled>${plan.cta}</button>
+    </article>
+  `).join('');
 }
 
 function handlePhotoSelected(file) {
@@ -1564,7 +1739,7 @@ async function checkUrlPayload() {
       }
 
       const derivedAesKey = await deriveKey(roomKey, parts[1]);
-      const ivBytes = base64ToBuffer(decodeURIComponent(parts[2]));
+      const ivBytes = base64ToBuffer(publicPayload.roomIv || decodeURIComponent(parts[2]));
       const encryptedBytes = base64ToBuffer(publicPayload.encData);
       const decryptedJson = await decryptData(encryptedBytes, derivedAesKey, ivBytes);
       const privatePayload = JSON.parse(decryptedJson);
@@ -1573,8 +1748,11 @@ async function checkUrlPayload() {
         publicPayload: {
           ...publicPayload,
           createdAt,
+          roomId: parts[0],
           salt: parts[1],
-          iv: parts[2],
+          iv: publicPayload.roomIv || parts[2],
+          roomStatus: publicPayload.roomStatus || 'active',
+          revision: Number(publicPayload.revision || 0),
         },
         privatePayload,
         roleContext: {
@@ -1674,9 +1852,144 @@ function setupGalleryRoomViewer() {
 
   document.getElementById("gallery-room-wallet").classList.toggle("hidden", role !== 'third');
   document.getElementById("private-third-panel").classList.toggle("hidden", !canAccessPrivateThirdChat(role));
+  document.getElementById("gallery-room-admin-panel").classList.toggle("hidden", role !== 'creator');
 
+  setGallerySyncStatus(`Encrypted sync ready · revision ${Number(publicPayload.revision || 0)}`);
+  renderGalleryRoomBurnState();
   renderGalleryRoomImages();
   renderGalleryRoomChats();
+  startGalleryRoomPolling();
+}
+
+function setGallerySyncStatus(message, variant = '') {
+  const status = document.getElementById("gallery-room-sync-status");
+  if (!status) return;
+  status.innerText = message;
+  status.dataset.variant = variant;
+}
+
+function renderGalleryRoomBurnState() {
+  if (!currentGalleryRoom) return;
+  const isBurned = currentGalleryRoom.publicPayload.roomStatus === 'burned';
+  document.getElementById("burned-room-card").classList.toggle("hidden", !isBurned);
+  document.getElementById("gallery-room-grid-panel").classList.toggle("hidden", isBurned);
+  document.getElementById("gallery-chat-layout").classList.toggle("hidden", isBurned);
+  document.getElementById("gallery-room-admin-panel").classList.toggle("hidden", isBurned || currentGalleryRoom.roleContext.role !== 'creator');
+  if (isBurned) {
+    setGallerySyncStatus("Room burned. Sync stopped.", "danger");
+    stopGalleryRoomPolling();
+  }
+}
+
+async function persistCurrentGalleryRoom(statusMessage = "Encrypted room state saved.") {
+  if (!currentGalleryRoom || !supabase) return false;
+  const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
+  const roomId = publicPayload.roomId;
+  if (!roomId) return false;
+
+  galleryRoomSyncInFlight = true;
+  setGallerySyncStatus("Encrypting and saving room state...");
+  try {
+    const ivBytes = crypto.getRandomValues(new Uint8Array(12));
+    const derivedAesKey = await deriveKey(roleContext.roomKey, publicPayload.salt);
+    const encryptedBuffer = await encryptData(JSON.stringify(privatePayload), derivedAesKey, ivBytes);
+    const encryptedBase64 = bufferToBase64(encryptedBuffer);
+    const nextIv = bufferToBase64(ivBytes);
+    const updatedPublicPayload = buildPersistedRoomPayload({
+      publicPayload: {
+        ...publicPayload,
+        roomIv: nextIv,
+      },
+      encryptedBase64,
+      roomStatus: publicPayload.roomStatus || 'active',
+      updatedAt: Date.now(),
+    });
+
+    const { error } = await supabase
+      .from('locks')
+      .update({ payload: updatedPublicPayload })
+      .eq('id', roomId);
+
+    if (error) {
+      console.error("Gallery room sync failed", error);
+      setGallerySyncStatus("Sync failed. Your local change is visible here only.", "danger");
+      return false;
+    }
+
+    currentGalleryRoom.publicPayload = {
+      ...updatedPublicPayload,
+      roomId,
+      salt: publicPayload.salt,
+      iv: nextIv,
+      createdAt: publicPayload.createdAt,
+    };
+    setGallerySyncStatus(`${statusMessage} · revision ${currentGalleryRoom.publicPayload.revision}`, "ready");
+    return true;
+  } finally {
+    galleryRoomSyncInFlight = false;
+  }
+}
+
+function startGalleryRoomPolling() {
+  stopGalleryRoomPolling();
+  if (!currentGalleryRoom || currentGalleryRoom.publicPayload.roomStatus === 'burned') return;
+  galleryRoomSyncInterval = setInterval(refreshGalleryRoomState, 7000);
+}
+
+function stopGalleryRoomPolling() {
+  if (galleryRoomSyncInterval) {
+    clearInterval(galleryRoomSyncInterval);
+    galleryRoomSyncInterval = null;
+  }
+}
+
+async function refreshGalleryRoomState() {
+  if (!currentGalleryRoom || galleryRoomSyncInFlight) return;
+  const { publicPayload, roleContext } = currentGalleryRoom;
+  if (!publicPayload.roomId || publicPayload.roomStatus === 'burned') return;
+  if (Date.now() > getVaultExpiryMs(publicPayload.createdAt, publicPayload.expiresInHours || 24)) {
+    stopGalleryRoomPolling();
+    setGallerySyncStatus("Room expired. Sync stopped.", "danger");
+    return;
+  }
+
+  galleryRoomSyncInFlight = true;
+  try {
+    const { data, error } = await supabase
+      .from('locks')
+      .select('payload')
+      .eq('id', publicPayload.roomId)
+      .single();
+
+    if (error || !data?.payload) throw error || new Error("Room payload missing.");
+    const remotePayload = data.payload;
+    if (Number(remotePayload.revision || 0) <= Number(publicPayload.revision || 0)) return;
+
+    const derivedAesKey = await deriveKey(roleContext.roomKey, publicPayload.salt);
+    const ivBytes = base64ToBuffer(remotePayload.roomIv || decodeURIComponent(publicPayload.iv));
+    const encryptedBytes = base64ToBuffer(remotePayload.encData);
+    const decryptedJson = await decryptData(encryptedBytes, derivedAesKey, ivBytes);
+
+    currentGalleryRoom.privatePayload = JSON.parse(decryptedJson);
+    currentGalleryRoom.publicPayload = {
+      ...remotePayload,
+      roomId: publicPayload.roomId,
+      salt: publicPayload.salt,
+      iv: remotePayload.roomIv || publicPayload.iv,
+      createdAt: publicPayload.createdAt,
+      roomStatus: remotePayload.roomStatus || 'active',
+      revision: Number(remotePayload.revision || 0),
+    };
+    setGallerySyncStatus(`Synced latest encrypted room state · revision ${currentGalleryRoom.publicPayload.revision}`, "ready");
+    renderGalleryRoomBurnState();
+    renderGalleryRoomImages();
+    renderGalleryRoomChats();
+  } catch (error) {
+    console.error("Gallery room refresh failed", error);
+    setGallerySyncStatus("Could not refresh room state. Keeping current local view.", "danger");
+  } finally {
+    galleryRoomSyncInFlight = false;
+  }
 }
 
 function startGalleryRoomCountdown(createdAtTimestamp, expiresInHours) {
@@ -1699,6 +2012,7 @@ function renderGalleryRoomImages() {
   if (!currentGalleryRoom) return;
 
   const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
+  if (publicPayload.roomStatus === 'burned') return;
   const role = roleContext.role;
   const grid = document.getElementById("gallery-room-grid");
   const coinMode = publicPayload.coinMode || 'request';
@@ -1776,69 +2090,107 @@ function renderGalleryChatLane(containerId, messages) {
   container.scrollTop = container.scrollHeight;
 }
 
-function appendGalleryChatMessage(kind) {
+async function appendGalleryChatMessage(kind) {
   if (!currentGalleryRoom) return;
-  const { roleContext, privatePayload } = currentGalleryRoom;
+  const { publicPayload, roleContext, privatePayload } = currentGalleryRoom;
   const isPrivate = kind === 'private';
-  if (isPrivate && !canAccessPrivateThirdChat(roleContext.role)) return;
 
   const input = document.getElementById(isPrivate ? "private-third-chat-input" : "gallery-room-chat-input");
   const text = input.value.trim();
   if (!text) return;
 
-  const message = {
-    id: `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+  const result = appendGalleryRoomMessage(privatePayload, {
+    lane: isPrivate ? 'private' : 'room',
     role: roleContext.role,
     text,
     ts: Date.now(),
-  };
-
-  if (isPrivate) {
-    privatePayload.privateThirdChat = privatePayload.privateThirdChat || [];
-    privatePayload.privateThirdChat.push(message);
-  } else {
-    privatePayload.roomChat = privatePayload.roomChat || [];
-    privatePayload.roomChat.push(message);
+    roomStatus: publicPayload.roomStatus || 'active',
+  });
+  if (!result.changed) {
+    setGallerySyncStatus(result.message || "Message was not sent.", "danger");
+    return;
   }
+
+  currentGalleryRoom.privatePayload = result.payload;
   input.value = "";
   renderGalleryRoomChats();
+  await persistCurrentGalleryRoom("Message synced");
 }
 
-function requestGalleryUnlock(index) {
+async function requestGalleryUnlock(index) {
   const { publicPayload, privatePayload, roleContext } = currentGalleryRoom;
-  const media = privatePayload.media[index];
-  if (!media || !canRequestGalleryUnlock({ role: roleContext.role, coinMode: publicPayload.coinMode, imageState: media.state || 'hidden' })) return;
-
-  if (publicPayload.coinMode === 'auto') {
-    media.state = 'unlocked';
-    media.visibleTo = ['creator', 'partner', 'third'];
-  } else {
-    media.state = 'requested';
-    media.visibleTo = ['creator'];
-    privatePayload.unlockRequests = privatePayload.unlockRequests || [];
-    privatePayload.unlockRequests.push({ imageId: media.id, role: roleContext.role, coins: 25, ts: Date.now() });
+  const result = requestGalleryImageUnlock(privatePayload, {
+    index,
+    role: roleContext.role,
+    coinMode: publicPayload.coinMode || 'request',
+    ts: Date.now(),
+    roomStatus: publicPayload.roomStatus || 'active',
+  });
+  if (!result.changed) {
+    setGallerySyncStatus(result.message || "Unlock request was not saved.", "danger");
+    return;
   }
+
+  currentGalleryRoom.privatePayload = result.payload;
   renderGalleryRoomImages();
+  await persistCurrentGalleryRoom(publicPayload.coinMode === 'auto' ? "Image unlocked with mock coins" : "Unlock request synced");
 }
 
-function approveGalleryUnlock(index) {
-  const media = currentGalleryRoom?.privatePayload?.media?.[index];
-  if (!media) return;
-  media.state = 'unlocked';
-  media.visibleTo = ['creator', 'partner', 'third'];
+async function approveGalleryUnlock(index) {
+  if (!currentGalleryRoom) return;
+  const result = mutateGalleryImageState(currentGalleryRoom.privatePayload, {
+    index,
+    role: currentGalleryRoom.roleContext.role,
+    action: 'approve',
+    roomStatus: currentGalleryRoom.publicPayload.roomStatus || 'active',
+  });
+  if (!result.changed) {
+    setGallerySyncStatus(result.message || "Image state was not changed.", "danger");
+    return;
+  }
+
+  currentGalleryRoom.privatePayload = result.payload;
   renderGalleryRoomImages();
+  await persistCurrentGalleryRoom("Image reveal synced");
 }
 
 function revealGalleryImage(index) {
   approveGalleryUnlock(index);
 }
 
-function relockGalleryImage(index) {
-  const media = currentGalleryRoom?.privatePayload?.media?.[index];
-  if (!media) return;
-  media.state = 'hidden';
-  media.visibleTo = ['creator'];
+async function relockGalleryImage(index) {
+  if (!currentGalleryRoom) return;
+  const result = mutateGalleryImageState(currentGalleryRoom.privatePayload, {
+    index,
+    role: currentGalleryRoom.roleContext.role,
+    action: 'relock',
+    roomStatus: currentGalleryRoom.publicPayload.roomStatus || 'active',
+  });
+  if (!result.changed) {
+    setGallerySyncStatus(result.message || "Image state was not changed.", "danger");
+    return;
+  }
+
+  currentGalleryRoom.privatePayload = result.payload;
   renderGalleryRoomImages();
+  await persistCurrentGalleryRoom("Image relocked");
+}
+
+async function burnCurrentGalleryRoom() {
+  if (!currentGalleryRoom) return;
+  const result = burnGalleryRoomPayload(currentGalleryRoom.privatePayload, {
+    role: currentGalleryRoom.roleContext.role,
+    ts: Date.now(),
+  });
+  if (!result.changed) {
+    setGallerySyncStatus(result.message || "Room was not burned.", "danger");
+    return;
+  }
+
+  currentGalleryRoom.privatePayload = result.payload;
+  currentGalleryRoom.publicPayload.roomStatus = 'burned';
+  renderGalleryRoomBurnState();
+  await persistCurrentGalleryRoom("Room burned and revoked");
 }
 
 function escapeHtml(value) {

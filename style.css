@@ -399,6 +399,64 @@ body {
   color: var(--text-muted);
 }
 
+.pro-plan-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.pro-plan-badge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  border-radius: 999px;
+  background: rgba(0, 242, 254, 0.08);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.45rem 0.7rem;
+  white-space: nowrap;
+}
+
+.pro-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.pro-plan-card {
+  display: grid;
+  gap: 0.8rem;
+  align-content: space-between;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1rem;
+}
+
+.pro-plan-card h4 {
+  font-size: 1rem;
+  line-height: 1.25;
+  margin: 0.15rem 0;
+}
+
+.pro-plan-price {
+  display: block;
+  color: var(--primary);
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.pro-plan-features {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  padding-left: 1rem;
+}
+
 .gallery-room-dropzone {
   position: relative;
   display: grid;
@@ -1012,8 +1070,15 @@ a:focus,
   }
 
   .gallery-room-hero,
-  .gallery-room-panel-header {
+  .gallery-room-panel-header,
+  .gallery-room-admin-panel,
+  .burned-room-card,
+  .pro-plan-header {
     flex-direction: column;
+  }
+
+  .pro-plan-grid {
+    grid-template-columns: 1fr;
   }
 
   .viewer-gallery-grid,
@@ -1041,6 +1106,30 @@ a:focus,
   text-align: left;
 }
 
+.gallery-sync-status {
+  display: inline-flex;
+  margin-top: 0.65rem;
+  border: 1px solid rgba(0, 242, 254, 0.22);
+  border-radius: 999px;
+  background: rgba(0, 242, 254, 0.08);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.4rem 0.65rem;
+}
+
+.gallery-sync-status[data-variant="ready"] {
+  border-color: rgba(255, 184, 75, 0.24);
+  background: rgba(255, 184, 75, 0.08);
+  color: var(--text-main);
+}
+
+.gallery-sync-status[data-variant="danger"] {
+  border-color: rgba(255, 75, 114, 0.3);
+  background: rgba(255, 75, 114, 0.1);
+  color: #ff8aa2;
+}
+
 .gallery-role-badge,
 .coin-wallet {
   display: inline-flex;
@@ -1058,6 +1147,30 @@ a:focus,
 
 .gallery-room-grid-panel {
   text-align: left;
+}
+
+.gallery-room-admin-panel,
+.burned-room-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  text-align: left;
+}
+
+.gallery-room-admin-panel {
+  border-color: rgba(255, 184, 75, 0.25);
+  background: rgba(255, 184, 75, 0.06);
+}
+
+.burned-room-card {
+  border-color: rgba(255, 75, 114, 0.28);
+  background: rgba(255, 75, 114, 0.08);
+}
+
+.burned-room-card h3,
+.gallery-room-admin-panel h3 {
+  margin-bottom: 0.35rem;
 }
 
 .gallery-room-panel-header {
@@ -1169,6 +1282,26 @@ a:focus,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .gallery-room-hero,
+  .gallery-room-panel-header,
+  .gallery-room-admin-panel,
+  .burned-room-card,
+  .pro-plan-header {
+    flex-direction: column;
+  }
+
+  .viewer-gallery-grid,
+  .gallery-chat-layout,
+  .pro-plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-chat-compose {
+    grid-template-columns: 1fr;
+  }
 }
 
 .vault-wrapper {

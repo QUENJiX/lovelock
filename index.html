@@ -269,10 +269,16 @@
           </div>
         </div>
 
-        <div class="after-dark-only hidden pro-upsell-card">
-          <p class="eyebrow">After Dark Pro</p>
-          <h3>Built for repeat play</h3>
-          <p>Couple workspaces, saved roles, vault history, burn/revoke controls, premium scenario drops, and future video vaults will unlock with Pro.</p>
+        <div class="after-dark-only hidden pro-upsell-card" id="pro-plan-panel">
+          <div class="pro-plan-header">
+            <div>
+              <p class="eyebrow">After Dark Pro</p>
+              <h3>Recurring plans for repeat play</h3>
+              <p>Longer rooms, premium scenarios, burn/revoke history, and future paid media unlocks. Checkout is payment-ready but not live yet.</p>
+            </div>
+            <span class="pro-plan-badge">No lifetime plan</span>
+          </div>
+          <div class="pro-plan-grid" id="pro-plan-cards" aria-label="After Dark Pro recurring plans"></div>
         </div>
 
         <div class="action-bar">
@@ -410,22 +416,38 @@
               <p class="eyebrow">After Dark Gallery Room</p>
               <h3 id="gallery-room-viewer-title">Private Room</h3>
               <p class="section-subtitle" id="gallery-room-viewer-summary">Role-specific room loading...</p>
+              <p class="gallery-sync-status" id="gallery-room-sync-status" aria-live="polite">Syncing encrypted room state...</p>
             </div>
             <span class="gallery-role-badge" id="gallery-room-role-badge">Role</span>
           </div>
 
-          <div class="gallery-room-grid-panel card glass">
+          <div class="card glass burned-room-card hidden" id="burned-room-card">
+            <p class="eyebrow">Room Disabled</p>
+            <h3>This Gallery Room has been burned.</h3>
+            <p>Access was disabled by the creator. The app cannot promise deletion from every cache, but this room no longer reveals its encrypted state.</p>
+          </div>
+
+          <div class="card glass gallery-room-admin-panel hidden" id="gallery-room-admin-panel">
+            <div>
+              <p class="eyebrow">Creator Control</p>
+              <h3>Burn or revoke this room</h3>
+              <p class="section-subtitle">Disable future access by replacing the encrypted room state with a burned payload.</p>
+            </div>
+            <button type="button" class="btn btn-secondary" id="btn-burn-gallery-room">Burn Room</button>
+          </div>
+
+          <div class="gallery-room-grid-panel card glass" id="gallery-room-grid-panel">
             <div class="gallery-room-panel-header">
               <div>
                 <h3>Gallery</h3>
-                <p class="section-subtitle">Creator controls the reveal. Coin actions are mocked in this prototype.</p>
+                <p class="section-subtitle">Creator controls the reveal. Coins are mocked until payment processing is live.</p>
               </div>
               <div class="coin-wallet hidden" id="gallery-room-wallet">120 coins</div>
             </div>
             <div class="viewer-gallery-grid" id="gallery-room-grid"></div>
           </div>
 
-          <div class="gallery-chat-layout">
+          <div class="gallery-chat-layout" id="gallery-chat-layout">
             <div class="card glass gallery-chat-card">
               <h3>Room Chat</h3>
               <div class="gallery-chat-list" id="gallery-room-chat-list"></div>
